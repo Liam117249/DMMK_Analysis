@@ -12,20 +12,45 @@ def get_federation_server():
     Stellar SEP-0002 Standard: Fetches the actual federation URL 
     dynamically from the domain's stellar.toml file.
     """
+# --- INSERT THE NEW CODE HERE ---
+def resolve_username_to_id(username):
+    """
+    Stellar SEP-0002 Forward Lookup: 
+    Translates 'name*domain.com' into a G-Address.
+    """
+    if not username or "*" not in username:
+        return None
+
+    # 1. Split the domain to find the TOML file
+    parts = username.split("*")
+    if len(parts) != 2:
+        return None
+    domain = parts[1]
+    
     try:
-        url = "https://nugpay.app/.well-known/stellar.toml"
-        # Using a standard browser user-agent to prevent basic API blocking
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        response = requests.get(url, headers=headers, timeout=5)
+        # 2. Get the federation server URL dynamically
+        toml_url = f"https://{domain}/.well-known/stellar.toml"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(toml_url, timeout=5)
         
-        if response.status_code == 200:
-            for line in response.text.splitlines():
+        federation_url = None
+        if res.status_code == 200:
+            for line in res.text.splitlines():
                 if "FEDERATION_SERVER" in line:
-                    # Extracts https://some-url.com/federation from FEDERATION_SERVER="https://some-url.com/federation"
-                    return line.split("=")[1].strip(' "\'')
+                    federation_url = line.split("=")[1].strip(' "\'')
+                    break
+                    
+        # 3. Query the federation server for the ID
+        if federation_url:
+            query_url = f"{federation_url}?q={username}&type=name"
+            res = requests.get(query_url, timeout=5)
+            if res.status_code == 200:
+                return res.json().get("account_id")
     except Exception as e:
-        print(f"TOML fetch error: {e}")
+        print(f"Forward lookup error: {e}")
+    
     return None
+# --------------------------------
 
 def get_account_name(account_id, cache_dict, federation_url):
     """Checks cache. If not found, calls Federation API."""
