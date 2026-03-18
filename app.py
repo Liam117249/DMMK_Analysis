@@ -1,7 +1,11 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timezone, timedelta
-from stellar_logic import analyze_stellar_account, resolve_username_to_id
+from stellar_logic import (
+    analyze_stellar_account, 
+    resolve_username_to_id, 
+    resolve_id_to_name
+)
 
 # 1. Page Configuration
 st.set_page_config(page_title="NUGpay Pro Dashboard", layout="wide")
@@ -9,83 +13,79 @@ st.set_page_config(page_title="NUGpay Pro Dashboard", layout="wide")
 # 2. Session State Initialization
 if 'stellar_data' not in st.session_state:
     st.session_state.stellar_data = None
-if 'last_id' not in st.session_state:
-    st.session_state.last_id = ""
+if 'display_name' not in st.session_state:
+    st.session_state.display_name = ""
 
 # 3. Sidebar
 st.sidebar.header("Configuration")
-
-# User chooses how they want to search
 input_method = st.sidebar.radio("Search By", ["Username", "Account ID"])
 
 if input_method == "Username":
-    # Users can just type 'sithu' instead of 'sithu*nugpay.app'
-    user_input = st.sidebar.text_input("Enter Username", placeholder="e.g., sithu")
+    user_input = st.sidebar.text_input("Enter Name", placeholder="e.g. sithu")
 else:
     user_input = st.sidebar.text_input("Enter Stellar ID", placeholder="G...")
 
 analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 12, 1)
 
-# Action Buttons
 col_side1, col_side2 = st.sidebar.columns(2)
 run_btn = col_side1.button("Analyze Account", use_container_width=True)
 clear_btn = col_side2.button("Clear Cache", use_container_width=True)
 
 if clear_btn:
     st.session_state.stellar_data = None
-    st.session_state.last_id = ""
+    st.session_state.display_name = ""
     st.rerun()
 
 if run_btn and user_input:
-    with st.spinner("Resolving Identity..."):
+    with st.spinner("Resolving identity..."):
         target_id = None
-        display_label = user_input # Default label
+        current_name = user_input
         
         if input_method == "Username":
             target_id = resolve_username_to_id(user_input)
-            display_label = user_input
+            if not target_id:
+                st.sidebar.error("Username not found.")
         else:
-            # User entered a G-ID
             if user_input.startswith("G") and len(user_input) == 56:
                 target_id = user_input
-                # NEW: Try to find the name for this ID so the UI looks better
+                # Try to find the name for the G-address
                 found_name = resolve_id_to_name(user_input)
-                if found_name:
-                    display_label = found_name
+                if found_name: current_name = found_name
             else:
-                st.sidebar.error("Invalid Stellar ID.")
+                st.sidebar.error("Invalid G-Address.")
 
         if target_id:
             data = analyze_stellar_account(target_id, months=analysis_months)
             if data:
                 st.session_state.stellar_data = data
-                # Store the NAME if found, otherwise store the ID
-                st.session_state.last_id = display_label 
-                st.sidebar.success(f"Loaded: {display_label}")
+                st.session_state.display_name = current_name
+                st.sidebar.success(f"Loaded: {current_name}")
             else:
-                st.error("No DMMK or nUSDT transactions found for this account.")
-# 4. Main Dashboard Logic
-st.title("NUGpay User Analytics")
+                st.error("No transactions found.")
+
+# 4. Main Dashboard
+if st.session_state.display_name:
+    st.title(f"Dashboard: {st.session_state.display_name}")
+else:
+    st.title("NUGpay User Analytics")
 
 if st.session_state.stellar_data:
     df = pd.DataFrame(st.session_state.stellar_data)
 
-    # --- ADVANCED TIME FILTERS ---
+    # --- FILTERS ---
     st.subheader("Interactive Filters")
     t1, t2, t3 = st.columns(3)
-    
     with t1:
         months = ["All Months"] + sorted(df['month_name'].unique().tolist())
         sel_month = st.selectbox("Filter by Month", months)
     with t2:
-        # Show weeks only for selected month
         temp_df = df if sel_month == "All Months" else df[df['month_name'] == sel_month]
         weeks = ["All Weeks"] + sorted(temp_df['week_num'].unique().tolist())
         sel_week = st.selectbox("Filter by Week", weeks)
     with t3:
         recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True)
 
-    # Apply Filters
+    # Apply Filtering
     filtered_df = df.copy()
     if sel_month != "All Months":
         filtered_df = filtered_df[filtered_df['month_name'] == sel_month]
@@ -98,138 +98,43 @@ if st.session_state.stellar_data:
     elif recency == "Last 24 Hours":
         filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(hours=24))]
 
-    # --- SORTING & ASSETS ---
     st.markdown("---")
-    f1, f2, f3 = st.columns(3)
-    with f1:
-        asset_choice = st.multiselect("Active Assets", ["DMMK", "nUSDT"], default=["DMMK", "nUSDT"])
-        filtered_df = filtered_df[filtered_df['asset'].isin(asset_choice)]
-    with f2:
-        sort_order = st.selectbox("Order by Amount", ["Newest First", "Most to Least", "Least to Most"])
-    with f3:
-        top_10 = st.checkbox("Show Top 10 Accounts Only")
-
-    # Sorting
-    if sort_order == "Newest First":
-        filtered_df = filtered_df.sort_values("timestamp", ascending=False)
-    elif sort_order == "Most to Least":
-        filtered_df = filtered_df.sort_values("amount", ascending=False)
-    else:
-        filtered_df = filtered_df.sort_values("amount", ascending=True)
-
-    if top_10:
-        top_list = filtered_df.groupby('other_account')['amount'].sum().nlargest(10).index
-        filtered_df = filtered_df[filtered_df['other_account'].isin(top_list)]
-
-    # --- DISPLAY ---
+    
+    # --- TRANSACTION TABLE ---
     def format_val(row):
         return f"{row['amount']:,.2f}" if row['asset'] == "DMMK" else f"{row['amount']:,.7f}"
     
     filtered_df['formatted_amount'] = filtered_df.apply(format_val, axis=1)
-
     st.dataframe(
         filtered_df[["timestamp", "direction", "other_account", "formatted_amount", "asset"]],
-        use_container_width=True,
-        hide_index=True
+        use_container_width=True, hide_index=True
     )
 
-    st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
-
-
-    ################################
-    # --- ACCOUNT SUMMARY TABLE ---
-    # --- ACCOUNT SUMMARY TABLE ---
+    # --- SUMMARY TABLE ---
     st.markdown("---")
     st.subheader("Summary by Account")
-
-    # 1. Create separate columns for Incoming and Outgoing to allow summing
     summary_df = filtered_df.copy()
     summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
     summary_df['Outgoing'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "OUTGOING" else 0, axis=1)
 
-    # 2. Group by Account and Asset (Adding Count and Total Volume)
     account_summary = summary_df.groupby(['other_account', 'asset']).agg(
         Outgoing=('Outgoing', 'sum'),
         Incoming=('Incoming', 'sum'),
         Total_Volume=('amount', 'sum'),
         Tx_Count=('amount', 'count')
     ).reset_index()
-
-    # Calculate the Net Difference (Incoming minus Outgoing)
     account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
 
-    # 3. Add filters and sorting toggles for this table
-    sum_f1, sum_f2 = st.columns([1, 2])
-    with sum_f1:
-        sum_asset_filter = st.multiselect(
-            "Filter Summary Assets", 
-            ["DMMK", "nUSDT"], 
-            default=["DMMK", "nUSDT"],
-            key="summary_asset_filter"
-        )
-    with sum_f2:
-        # -> NEW: Dropdown (selectbox) for sorting logic
-        sort_choice = st.selectbox(
-            "Sort Table By:",
-            ["Total Amount (Volume)", "Number of Transactions"]
-        )
-    
-    # Apply local asset filter
-    display_summary = account_summary[account_summary['asset'].isin(sum_asset_filter)]
-
-    # Apply sorting based on the user's drop-down choice
-    if sort_choice == "Number of Transactions":
-        display_summary = display_summary.sort_values("Tx_Count", ascending=False)
-    else:
-        display_summary = display_summary.sort_values("Total_Volume", ascending=False)
-
-    # 4. Display the table (with the CORRECTED NumberColumn syntax!)
     st.dataframe(
-        display_summary,
+        account_summary.sort_values("Total_Volume", ascending=False),
         column_config={
-            "other_account": "Account Name",
-            "asset": "Asset",
-            "Tx_Count": st.column_config.NumberColumn(
-                "Tx Count",
-                help="Total number of transactions with this account"
-            ),
-            "Total_Volume": st.column_config.NumberColumn(
-                "Total Volume",
-                help="Sum of all incoming and outgoing amounts combined",
-                format="%,.2f"
-            ),
-            "Outgoing": st.column_config.NumberColumn(
-                "Total Outgoing",
-                help="Total sum of outgoing transactions for this account",
-                format="%,.2f"
-            ),
-            "Incoming": st.column_config.NumberColumn(
-                "Total Incoming",
-                help="Total sum of incoming transactions for this account",
-                format="%,.2f"
-            ),
-            "Net_Difference": st.column_config.NumberColumn(
-                "Net Balance (In - Out)",
-                help="Positive means they sent you more. Negative means you sent them more.",
-                format="%,.2f"
-            ),
+            "Total_Volume": st.column_config.NumberColumn("Total Volume", format="%,.2f"),
+            "Outgoing": st.column_config.NumberColumn("Total Outgoing", format="%,.2f"),
+            "Incoming": st.column_config.NumberColumn("Total Incoming", format="%,.2f"),
+            "Net_Difference": st.column_config.NumberColumn("Net Balance", format="%,.2f"),
         },
-        use_container_width=True,
-        hide_index=True
+        use_container_width=True, hide_index=True
     )
-########################
-
-
+    st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
 else:
-    st.info("Enter a Stellar Account ID in the sidebar to begin.")
-
-
-
-
-
-
-
-
-
-
-
+    st.info("Enter a Username or Account ID in the sidebar to begin.")
