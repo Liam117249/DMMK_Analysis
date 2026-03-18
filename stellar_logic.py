@@ -13,47 +13,25 @@ def get_federation_server():
     dynamically from the domain's stellar.toml file.
     """
 # --- INSERT THE NEW CODE HERE ---
-def resolve_username_to_id(username):
+def resolve_id_to_name(account_id):
     """
-    Translates 'name' or 'name*domain.com' into a G-Address.
-    Defaults to nugpay.app if no domain is provided.
+    Reverse Lookup: Takes a G-Address and returns the name (e.g., 'sithu').
     """
-    if not username:
+    # Use your existing federation logic
+    fed_url = get_federation_server()
+    if not fed_url:
         return None
-
-    # Default domain for your specific app
-    DEFAULT_DOMAIN = "nugpay.app"
-
-    # If the user didn't type a '*', append the default domain
-    if "*" not in username:
-        full_address = f"{username}*{DEFAULT_DOMAIN}"
-        domain = DEFAULT_DOMAIN
-    else:
-        full_address = username
-        domain = username.split("*")[1]
-    
-    try:
-        # Get the federation server URL from the domain's TOML
-        toml_url = f"https://{domain}/.well-known/stellar.toml"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(toml_url, timeout=5)
         
-        federation_url = None
-        if res.status_code == 200:
-            for line in res.text.splitlines():
-                if "FEDERATION_SERVER" in line:
-                    federation_url = line.split("=")[1].strip(' "\'')
-                    break
-                    
-        # Query the federation server for the ID using the full address
-        if federation_url:
-            query_url = f"{federation_url}?q={full_address}&type=name"
-            res = requests.get(query_url, timeout=5)
-            if res.status_code == 200:
-                return res.json().get("account_id")
-    except Exception as e:
-        print(f"Forward lookup error: {e}")
-    
+    try:
+        url = f"{fed_url}?q={account_id}&type=id"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            stellar_address = data.get("stellar_address", "")
+            if "*" in stellar_address:
+                return stellar_address.split("*")[0]
+    except:
+        pass
     return None
 # --------------------------------
 
