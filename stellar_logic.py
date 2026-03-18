@@ -66,4 +66,68 @@ def resolve_id_to_name(account_id):
 def get_account_name(account_id, cache_dict, federation_url):
     """Checks cache or Federation API for transaction history names."""
     if not account_id or len(account_id) < 16: return account_id
-    if account_id in cache_dict:
+    if account_id in cache_dict: return cache_dict[account_id]
+
+    if federation_url:
+        url = f"{federation_url}?q={account_id}&type=id"
+        try:
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                stellar_address = response.json().get("stellar_address", "")
+                if stellar_address and "*" in stellar_address:
+                    username = stellar_address.split("*")[0]
+                    cache_dict[account_id] = username
+                    return username
+        except:
+            pass
+
+    fallback = f"{account_id[:8]}*******{account_id[-8:]}"
+    cache_dict[account_id] = fallback
+    return fallback
+
+def analyze_stellar_account(account_id, months=1):
+    server = Server("https://horizon.stellar.org")
+    now_utc = datetime.now(timezone.utc)
+    start_date = now_utc - timedelta(days=30 * months)
+    
+    processed_data = []
+    name_cache = {} 
+    federation_url = get_federation_server()
+    
+    try:
+        payments_call = server.payments().for_account(account_id).order(desc=True).limit(200)
+        records = payments_call.call()
+
+        while records['_embedded']['records']:
+            for record in records['_embedded']['records']:
+                dt = datetime.strptime(record['created_at'], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                if dt < start_date:
+                    records['_embedded']['records'] = []
+                    break
+                
+                asset_code = record.get('asset_code')
+                if asset_code not in ["DMMK", "nUSDT"]: continue
+
+                raw_val = Decimal(record.get('amount', '0'))
+                final_val = raw_val * Decimal('1000') if asset_code == "DMMK" else raw_val
+                is_sender = record.get('from') == account_id
+                raw_other_account = record.get('to') if is_sender else record.get('from')
+                
+                display_name = get_account_name(raw_other_account, name_cache, federation_url)
+                
+                processed_data.append({
+                    "timestamp": dt,
+                    "date": dt.date(),
+                    "month_name": dt.strftime("%B"),
+                    "week_num": f"Week {dt.isocalendar()[1]}",
+                    "direction": "OUTGOING" if is_sender else "INCOMING",
+                    "other_account": display_name,
+                    "amount": float(final_val),
+                    "asset": asset_code
+                })
+            records = payments_call.next()
+            if not records['_embedded']['records']: break
+        return processed_data
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
