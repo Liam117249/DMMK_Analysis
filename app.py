@@ -37,29 +37,31 @@ if clear_btn:
     st.rerun()
 
 if run_btn and user_input:
-    with st.spinner("Resolving Identity & Fetching Data..."):
+    with st.spinner("Resolving Identity..."):
         target_id = None
+        display_label = user_input # Default label
         
-        # LOGIC: Resolve name to G-Address if necessary
         if input_method == "Username":
-            # This calls the logic we added to stellar_logic.py
             target_id = resolve_username_to_id(user_input)
-            if not target_id:
-                st.sidebar.error("Could not find that user on nugpay.app")
+            display_label = user_input
         else:
-            # Direct ID usage
+            # User entered a G-ID
             if user_input.startswith("G") and len(user_input) == 56:
                 target_id = user_input
+                # NEW: Try to find the name for this ID so the UI looks better
+                found_name = resolve_id_to_name(user_input)
+                if found_name:
+                    display_label = found_name
             else:
-                st.sidebar.error("Invalid Stellar G-Address format.")
+                st.sidebar.error("Invalid Stellar ID.")
 
-        # If we have a valid G-Address, proceed with analysis
         if target_id:
             data = analyze_stellar_account(target_id, months=analysis_months)
             if data:
                 st.session_state.stellar_data = data
-                st.session_state.last_id = target_id
-                st.sidebar.success(f"Loaded: {user_input}")
+                # Store the NAME if found, otherwise store the ID
+                st.session_state.last_id = display_label 
+                st.sidebar.success(f"Loaded: {display_label}")
             else:
                 st.error("No DMMK or nUSDT transactions found for this account.")
 # 4. Main Dashboard Logic
