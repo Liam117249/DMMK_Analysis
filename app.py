@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timezone, timedelta
-from stellar_logic import analyze_stellar_account
+from stellar_logic import analyze_stellar_account, resolve_username_to_id
 
 # 1. Page Configuration
 st.set_page_config(page_title="NUGpay Pro Dashboard", layout="wide")
@@ -15,13 +15,14 @@ if 'last_id' not in st.session_state:
 # 3. Sidebar
 st.sidebar.header("Configuration")
 
-# Toggle between ID and Username
-input_type = st.sidebar.radio("Input Type", ["Account ID (G...)", "Stellar Address (name*domain)"])
+# User chooses how they want to search
+input_method = st.sidebar.radio("Search By", ["Username", "Account ID"])
 
-if input_type == "Account ID (G...)":
-    user_input = st.sidebar.text_input("Enter ID", placeholder="GDMMKKNI...")
+if input_method == "Username":
+    # Users can just type 'sithu' instead of 'sithu*nugpay.app'
+    user_input = st.sidebar.text_input("Enter Username", placeholder="e.g., sithu")
 else:
-    user_input = st.sidebar.text_input("Enter Username", placeholder="user*nugpay.app")
+    user_input = st.sidebar.text_input("Enter Stellar ID", placeholder="G...")
 
 analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 12, 1)
 
@@ -30,25 +31,35 @@ col_side1, col_side2 = st.sidebar.columns(2)
 run_btn = col_side1.button("Analyze Account", use_container_width=True)
 clear_btn = col_side2.button("Clear Cache", use_container_width=True)
 
+if clear_btn:
+    st.session_state.stellar_data = None
+    st.session_state.last_id = ""
+    st.rerun()
+
 if run_btn and user_input:
     with st.spinner("Resolving Identity & Fetching Data..."):
-        target_id = user_input
+        target_id = None
         
-        # If user provided a name, resolve it to a G-address first
-        if "*" in user_input:
-            from stellar_logic import resolve_username_to_id
-            resolved_id = resolve_username_to_id(user_input)
-            if resolved_id:
-                target_id = resolved_id
+        # LOGIC: Resolve name to G-Address if necessary
+        if input_method == "Username":
+            # This calls the logic we added to stellar_logic.py
+            target_id = resolve_username_to_id(user_input)
+            if not target_id:
+                st.sidebar.error("Could not find that user on nugpay.app")
+        else:
+            # Direct ID usage
+            if user_input.startswith("G") and len(user_input) == 56:
+                target_id = user_input
             else:
-                st.error("Could not find a Stellar ID for that username.")
-                target_id = None
+                st.sidebar.error("Invalid Stellar G-Address format.")
 
+        # If we have a valid G-Address, proceed with analysis
         if target_id:
             data = analyze_stellar_account(target_id, months=analysis_months)
             if data:
                 st.session_state.stellar_data = data
                 st.session_state.last_id = target_id
+                st.sidebar.success(f"Loaded: {user_input}")
             else:
                 st.error("No DMMK or nUSDT transactions found for this account.")
 # 4. Main Dashboard Logic
