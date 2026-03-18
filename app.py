@@ -14,7 +14,15 @@ if 'last_id' not in st.session_state:
 
 # 3. Sidebar
 st.sidebar.header("Configuration")
-user_account_id = st.sidebar.text_input("Stellar Account ID", placeholder="GDMMKKNI...")
+
+# Toggle between ID and Username
+input_type = st.sidebar.radio("Input Type", ["Account ID (G...)", "Stellar Address (name*domain)"])
+
+if input_type == "Account ID (G...)":
+    user_input = st.sidebar.text_input("Enter ID", placeholder="GDMMKKNI...")
+else:
+    user_input = st.sidebar.text_input("Enter Username", placeholder="user*nugpay.app")
+
 analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 12, 1)
 
 # Action Buttons
@@ -22,19 +30,27 @@ col_side1, col_side2 = st.sidebar.columns(2)
 run_btn = col_side1.button("Analyze Account", use_container_width=True)
 clear_btn = col_side2.button("Clear Cache", use_container_width=True)
 
-if clear_btn:
-    st.session_state.stellar_data = None
-    st.rerun()
+if run_btn and user_input:
+    with st.spinner("Resolving Identity & Fetching Data..."):
+        target_id = user_input
+        
+        # If user provided a name, resolve it to a G-address first
+        if "*" in user_input:
+            from stellar_logic import resolve_username_to_id
+            resolved_id = resolve_username_to_id(user_input)
+            if resolved_id:
+                target_id = resolved_id
+            else:
+                st.error("Could not find a Stellar ID for that username.")
+                target_id = None
 
-if run_btn and user_account_id:
-    with st.spinner("Fetching Blockchain Data..."):
-        data = analyze_stellar_account(user_account_id, months=analysis_months)
-        if data:
-            st.session_state.stellar_data = data
-            st.session_state.last_id = user_account_id
-        else:
-            st.error("No DMMK or nUSDT transactions found.")
-
+        if target_id:
+            data = analyze_stellar_account(target_id, months=analysis_months)
+            if data:
+                st.session_state.stellar_data = data
+                st.session_state.last_id = target_id
+            else:
+                st.error("No DMMK or nUSDT transactions found for this account.")
 # 4. Main Dashboard Logic
 st.title("NUGpay User Analytics")
 
