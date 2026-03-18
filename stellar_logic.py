@@ -15,20 +15,25 @@ def get_federation_server():
 # --- INSERT THE NEW CODE HERE ---
 def resolve_username_to_id(username):
     """
-    Stellar SEP-0002 Forward Lookup: 
-    Translates 'name*domain.com' into a G-Address.
+    Translates 'name' or 'name*domain.com' into a G-Address.
+    Defaults to nugpay.app if no domain is provided.
     """
-    if not username or "*" not in username:
+    if not username:
         return None
 
-    # 1. Split the domain to find the TOML file
-    parts = username.split("*")
-    if len(parts) != 2:
-        return None
-    domain = parts[1]
+    # Default domain for your specific app
+    DEFAULT_DOMAIN = "nugpay.app"
+
+    # If the user didn't type a '*', append the default domain
+    if "*" not in username:
+        full_address = f"{username}*{DEFAULT_DOMAIN}"
+        domain = DEFAULT_DOMAIN
+    else:
+        full_address = username
+        domain = username.split("*")[1]
     
     try:
-        # 2. Get the federation server URL dynamically
+        # Get the federation server URL from the domain's TOML
         toml_url = f"https://{domain}/.well-known/stellar.toml"
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(toml_url, timeout=5)
@@ -40,9 +45,9 @@ def resolve_username_to_id(username):
                     federation_url = line.split("=")[1].strip(' "\'')
                     break
                     
-        # 3. Query the federation server for the ID
+        # Query the federation server for the ID using the full address
         if federation_url:
-            query_url = f"{federation_url}?q={username}&type=name"
+            query_url = f"{federation_url}?q={full_address}&type=name"
             res = requests.get(query_url, timeout=5)
             if res.status_code == 200:
                 return res.json().get("account_id")
