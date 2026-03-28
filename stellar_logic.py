@@ -120,7 +120,7 @@ def analyze_stellar_account(account_id, months=1):
                     "week_num": f"Week {dt.isocalendar()[1]}",
                     "direction": "OUTGOING" if is_sender else "INCOMING",
                     "other_account": display_name,
-                    "other_account_id": raw_other_account, # Added to support row-click navigation
+                    "other_account_id": raw_other_account, 
                     "amount": float(final_val),
                     "asset": asset_code
                 })
