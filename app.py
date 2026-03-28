@@ -169,7 +169,7 @@ if st.session_state.stellar_data:
     with t3:
         recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True)
         # Subtle Jump Link placed directly under Quick Tracker
-        st.markdown('<a href="#summary-section" class="subtle-jump">⚓ Jump to Account Summary</a>', unsafe_allow_html=True)
+        st.markdown('<a href="#summary-section" class="subtle-jump">Jump to Account Summary</a>', unsafe_allow_html=True)
 
     # Asset Selector Pills
     selected_assets = st.pills(
