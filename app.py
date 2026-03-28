@@ -149,7 +149,7 @@ if st.session_state.stellar_data:
     selected_assets = st.pills(
         "Filter Assets", 
         options=["DMMK", "nUSDT"], 
-        default=["DMMK", "nUSDT"], 
+        default=["DMMK", "nUSDT"], # Default both selected
         selection_mode="multi"
     )
 
@@ -181,10 +181,14 @@ if st.session_state.stellar_data:
         st.warning(f"No {selected_str} transactions found for the selected time period.")
     else:
         # --- TRANSACTION TABLE ---
+        display_df = filtered_df.copy()
+        
+        # Clean Timestamp (Remove +00:00)
+        display_df['Date/Time'] = display_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+        
         def format_val(row):
             return f"{row['amount']:,.2f}" if row['asset'] == "DMMK" else f"{row['amount']:,.7f}"
         
-        display_df = filtered_df.copy()
         display_df['Amount'] = display_df.apply(format_val, axis=1)
         
         def create_html_link(row):
@@ -193,8 +197,8 @@ if st.session_state.stellar_data:
         
         display_df['Other Account'] = display_df.apply(create_html_link, axis=1)
         
-        display_tx_df = display_df[['timestamp', 'direction', 'Other Account', 'Amount', 'asset']].copy()
-        display_tx_df.columns = ['Timestamp', 'Direction', 'Other Account', 'Amount', 'Asset']
+        display_tx_df = display_df[['Date/Time', 'direction', 'Other Account', 'Amount', 'asset']].copy()
+        display_tx_df.columns = ['Date/Time', 'Direction', 'Other Account', 'Amount', 'Asset']
 
         st.write("**Transaction History**")
         st.markdown(display_tx_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
@@ -203,7 +207,6 @@ if st.session_state.stellar_data:
         st.markdown("---")
         st.subheader("Summary by Account")
         
-        # Sorting Controls
         s1, s2 = st.columns([2, 1])
         with s1:
             sort_metric = st.selectbox(
@@ -230,14 +233,12 @@ if st.session_state.stellar_data:
         
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
         
-        # Apply Dynamic Sorting
+        # Apply Sorting and get Top 10
         account_summary = account_summary.sort_values(sort_metric, ascending=ascending_bool).head(10)
 
-        # Format for Display
-        account_summary['Other Account Link'] = account_summary.apply(create_html_link, axis=1)
-        
-        # Create display copy to avoid string-formatting numbers before sorting
+        # Format Summary Table
         disp_summary = account_summary.copy()
+        disp_summary['Other Account Link'] = disp_summary.apply(create_html_link, axis=1)
         disp_summary['Total Volume'] = disp_summary['Total_Volume'].apply(lambda x: f"{x:,.2f}")
         disp_summary['Incoming'] = disp_summary['Incoming'].apply(lambda x: f"{x:,.2f}")
         disp_summary['Outgoing'] = disp_summary['Outgoing'].apply(lambda x: f"{x:,.2f}")
