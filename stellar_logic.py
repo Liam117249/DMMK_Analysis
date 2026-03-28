@@ -112,32 +112,4 @@ def analyze_stellar_account(account_id, months=1):
                 
                 unique_other_accounts.add(raw_other_account)
                 
-                raw_data.append({
-                    "timestamp": dt,
-                    "date": dt.date(),
-                    "month_name": dt.strftime("%B"),
-                    "week_num": f"Week {dt.isocalendar()[1]}",
-                    "direction": "OUTGOING" if is_sender else "INCOMING",
-                    "other_account_id": raw_other_account,
-                    "amount": float(final_val),
-                    "asset": asset_code
-                })
-            records = payments_call.next()
-            if not records['_embedded']['records']: break
-            
-        # Step 2: Resolve names concurrently (Multithreading)
-        name_mapping = {}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-            futures = {executor.submit(fetch_account_name, acc, federation_url): acc for acc in unique_other_accounts}
-            for future in concurrent.futures.as_completed(futures):
-                acc_id = futures[future]
-                name_mapping[acc_id] = future.result()
-                
-        # Step 3: Map the names back to the records
-        for row in raw_data:
-            row["other_account"] = name_mapping.get(row["other_account_id"], row["other_account_id"])
-            
-        return raw_data
-    except Exception as e:
-        print(f"Error: {e}")
-        return None
+                raw_data
