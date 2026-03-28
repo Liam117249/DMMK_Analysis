@@ -71,7 +71,6 @@ def load_account_data(identifier, months):
             target_id = resolve_username_to_id(identifier)
         
         if target_id:
-            # Using the cached function here
             data = fetch_cached_analysis(target_id, months)
             if data:
                 st.session_state.stellar_data = data
@@ -112,7 +111,7 @@ if clear_btn:
     st.session_state.stellar_data = None
     st.session_state.display_name = ""
     st.query_params.clear()
-    fetch_cached_analysis.clear() # Clears the Streamlit cache
+    fetch_cached_analysis.clear() 
     st.rerun()
 
 if run_btn and user_input:
@@ -131,16 +130,27 @@ if st.session_state.stellar_data:
     st.subheader("Interactive Filters")
     t1, t2, t3 = st.columns(3)
     with t1:
-        months = ["All Months"] + sorted(df['month_name'].unique().tolist())
-        sel_month = st.selectbox("Filter by Month", months)
+        # Fixed: Chronological month sorting instead of alphabetical
+        chronological_months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+        available_months = [m for m in chronological_months if m in df['month_name'].unique()]
+        months_list = ["All Months"] + available_months
+        sel_month = st.selectbox("Filter by Month", months_list)
+        
     with t2:
         temp_df = df if sel_month == "All Months" else df[df['month_name'] == sel_month]
-        weeks = ["All Weeks"] + sorted(temp_df['week_num'].unique().tolist())
-        sel_week = st.selectbox("Filter by Week", weeks)
+        
+        # Fixed: Numerical week sorting instead of alphabetical (e.g., Week 2 comes before Week 10)
+        def extract_week(w):
+            return int(w.replace("Week ", ""))
+            
+        available_weeks = sorted(temp_df['week_num'].unique().tolist(), key=extract_week)
+        weeks_list = ["All Weeks"] + available_weeks
+        sel_week = st.selectbox("Filter by Week", weeks_list)
+        
     with t3:
         recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True)
 
-    # Apply Filtering
+    # Apply Filtering Logic
     filtered_df = df.copy()
     if sel_month != "All Months":
         filtered_df = filtered_df[filtered_df['month_name'] == sel_month]
@@ -155,64 +165,68 @@ if st.session_state.stellar_data:
 
     st.markdown("---")
     
-    # --- TRANSACTION TABLE (HTML) ---
-    def format_val(row):
-        return f"{row['amount']:,.2f}" if row['asset'] == "DMMK" else f"{row['amount']:,.7f}"
-    
-    filtered_df['Amount'] = filtered_df.apply(format_val, axis=1)
-    
-    def create_html_link(row):
-        safe_name = urllib.parse.quote(row['other_account'])
-        return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}" target="_self">{row["other_account"]}</a>'
-    
-    filtered_df['Other Account'] = filtered_df.apply(create_html_link, axis=1)
-    
-    display_tx_df = filtered_df[['timestamp', 'direction', 'Other Account', 'Amount', 'asset']].copy()
-    display_tx_df.columns = ['Timestamp', 'Direction', 'Other Account', 'Amount', 'Asset']
-
-    st.write("**Transaction History**")
-    st.markdown(display_tx_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
-
-    # --- SUMMARY TABLE (HTML) ---
-    st.markdown("---")
-    st.subheader("Summary by Account")
-    
-    summary_asset = st.radio("Asset Filter (Summary Only)", ["Both", "DMMK", "nUSDT"], horizontal=True)
-    
-    summary_df = filtered_df.copy()
-    if summary_asset != "Both":
-        summary_df = summary_df[summary_df['asset'] == summary_asset]
-
-    if summary_df.empty:
-        st.info(f"No {summary_asset} transactions found for this account in the selected timeframe.")
+    # --- SAFEGUARD: Check if the strict filters emptied the dataframe ---
+    if filtered_df.empty:
+        st.warning("No transactions found matching the selected filters.")
     else:
-        summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
-        summary_df['Outgoing'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "OUTGOING" else 0, axis=1)
-
-        account_summary = summary_df.groupby(['other_account', 'other_account_id', 'asset']).agg(
-            Outgoing=('Outgoing', 'sum'),
-            Incoming=('Incoming', 'sum'),
-            Total_Volume=('amount', 'sum'),
-            Tx_Count=('amount', 'count')
-        ).reset_index()
+        # --- TRANSACTION TABLE (HTML) ---
+        def format_val(row):
+            return f"{row['amount']:,.2f}" if row['asset'] == "DMMK" else f"{row['amount']:,.7f}"
         
-        account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
-        account_summary = account_summary.sort_values("Tx_Count", ascending=False).head(10)
+        filtered_df['Amount'] = filtered_df.apply(format_val, axis=1)
+        
+        def create_html_link(row):
+            safe_name = urllib.parse.quote(row['other_account'])
+            return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}" target="_self">{row["other_account"]}</a>'
+        
+        filtered_df['Other Account'] = filtered_df.apply(create_html_link, axis=1)
+        
+        display_tx_df = filtered_df[['timestamp', 'direction', 'Other Account', 'Amount', 'asset']].copy()
+        display_tx_df.columns = ['Timestamp', 'Direction', 'Other Account', 'Amount', 'Asset']
 
-        account_summary['Other Account'] = account_summary.apply(create_html_link, axis=1)
+        st.write("**Transaction History**")
+        st.markdown(display_tx_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
-        account_summary['Total_Volume'] = account_summary['Total_Volume'].apply(lambda x: f"{x:,.2f}")
-        account_summary['Incoming'] = account_summary['Incoming'].apply(lambda x: f"{x:,.2f}")
-        account_summary['Outgoing'] = account_summary['Outgoing'].apply(lambda x: f"{x:,.2f}")
-        account_summary['Net_Difference'] = account_summary['Net_Difference'].apply(lambda x: f"{x:,.2f}")
+        # --- SUMMARY TABLE (HTML) ---
+        st.markdown("---")
+        st.subheader("Summary by Account")
+        
+        summary_asset = st.radio("Asset Filter (Summary Only)", ["Both", "DMMK", "nUSDT"], horizontal=True)
+        
+        summary_df = filtered_df.copy()
+        if summary_asset != "Both":
+            summary_df = summary_df[summary_df['asset'] == summary_asset]
 
-        display_summary_df = account_summary[['Other Account', 'asset', 'Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference', 'Tx_Count']].copy()
-        display_summary_df.columns = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']
+        if summary_df.empty:
+            st.info(f"No {summary_asset} transactions found for this account under the current filters.")
+        else:
+            summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
+            summary_df['Outgoing'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "OUTGOING" else 0, axis=1)
 
-        st.write("**Top 10 Accounts by Transaction Count**")
-        st.markdown(display_summary_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+            account_summary = summary_df.groupby(['other_account', 'other_account_id', 'asset']).agg(
+                Outgoing=('Outgoing', 'sum'),
+                Incoming=('Incoming', 'sum'),
+                Total_Volume=('amount', 'sum'),
+                Tx_Count=('amount', 'count')
+            ).reset_index()
+            
+            account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
+            account_summary = account_summary.sort_values("Tx_Count", ascending=False).head(10)
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
+            account_summary['Other Account'] = account_summary.apply(create_html_link, axis=1)
+
+            account_summary['Total_Volume'] = account_summary['Total_Volume'].apply(lambda x: f"{x:,.2f}")
+            account_summary['Incoming'] = account_summary['Incoming'].apply(lambda x: f"{x:,.2f}")
+            account_summary['Outgoing'] = account_summary['Outgoing'].apply(lambda x: f"{x:,.2f}")
+            account_summary['Net_Difference'] = account_summary['Net_Difference'].apply(lambda x: f"{x:,.2f}")
+
+            display_summary_df = account_summary[['Other Account', 'asset', 'Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference', 'Tx_Count']].copy()
+            display_summary_df.columns = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']
+
+            st.write("**Top 10 Accounts by Transaction Count**")
+            st.markdown(display_summary_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
 else:
     st.info("Enter a Username or Account ID in the sidebar to begin.")
