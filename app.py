@@ -216,7 +216,3 @@ if st.session_state.stellar_data:
     st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
 else:
     st.info("Enter a Username or Account ID in the sidebar to begin.")
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
-else:
-    st.info("Enter a Username or Account ID in the sidebar to begin.")
