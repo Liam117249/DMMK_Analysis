@@ -11,7 +11,7 @@ from stellar_logic import (
 # 1. Page Configuration
 st.set_page_config(page_title="NUGpay Pro Dashboard", layout="wide")
 
-# Custom CSS for table styling and smooth scrolling
+# Custom CSS for table styling and subtle navigation
 st.markdown("""
 <style>
     html {
@@ -44,15 +44,21 @@ st.markdown("""
     a.account-link:hover {
         text-decoration: underline;
     }
-    .jump-link {
-        display: inline-block;
-        padding: 8px 16px;
-        background-color: #1f77b4;
-        color: white !important;
-        border-radius: 5px;
+    /* Subtle Sidebar Link */
+    .sidebar-nav {
+        font-size: 0.85rem;
+        color: #888 !important;
         text-decoration: none;
-        font-weight: bold;
-        margin-bottom: 20px;
+    }
+    .sidebar-nav:hover {
+        color: #1f77b4 !important;
+    }
+    /* Subtle Back to Top */
+    .back-top {
+        font-size: 0.8rem;
+        color: #aaa !important;
+        text-decoration: none;
+        float: right;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -125,12 +131,17 @@ if clear_btn:
     fetch_cached_analysis.clear() 
     st.rerun()
 
+# Subtly add the "Jump" link at the bottom of the sidebar if data exists
+if st.session_state.stellar_data:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown('<a href="#summary-section" class="sidebar-nav">⚓ Jump to Account Summary</a>', unsafe_allow_html=True)
+
 if run_btn and user_input:
     load_account_data(user_input, analysis_months)
 
 # 4. Main Dashboard
-# Top anchor for "Back to Top" links
-st.markdown("<div id='top'></div>", unsafe_allow_html=True)
+# Invisible anchor for "Back to Top"
+st.markdown("<div id='top-anchor'></div>", unsafe_allow_html=True)
 
 if st.session_state.display_name:
     st.title(f"Dashboard: {st.session_state.display_name}")
@@ -168,9 +179,6 @@ if st.session_state.stellar_data:
         default=["DMMK", "nUSDT"], 
         selection_mode="multi"
     )
-
-    # Navigation Button
-    st.markdown('<a href="#summary_section" class="jump-link">⬇️ Jump to Summary</a>', unsafe_allow_html=True)
 
     # Apply Filtering Logic
     filtered_df = df.copy()
@@ -220,8 +228,9 @@ if st.session_state.stellar_data:
         st.write("**Transaction History**")
         st.markdown(display_tx_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
-        # --- SUMMARY SECTION WITH ANCHOR ---
-        st.markdown("<br><div id='summary_section'></div>", unsafe_allow_html=True)
+        # --- SUMMARY SECTION ---
+        # Subtle anchor for jumping
+        st.markdown("<div id='summary-section' style='padding-top:20px;'></div>", unsafe_allow_html=True)
         st.markdown("---")
         st.subheader("Summary by Account")
         
@@ -269,7 +278,8 @@ if st.session_state.stellar_data:
         st.markdown(disp_summary.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<a href="#top" style="text-decoration:none;">⬆️ Back to Top</a>', unsafe_allow_html=True)
+        # Subtle "Back to Top" link
+        st.markdown('<a href="#top-anchor" class="back-top">↑ Back to Top</a>', unsafe_allow_html=True)
         st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
 else:
     st.info("Enter a Username or Account ID in the sidebar to begin.")
