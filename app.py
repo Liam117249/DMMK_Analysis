@@ -136,13 +136,22 @@ if st.session_state.stellar_data:
     with t2:
         temp_df = df if sel_month == "All Months" else df[df['month_name'] == sel_month]
         def extract_week(w):
-            return int(w.replace("Week ", ""))
+            try: return int(w.replace("Week ", ""))
+            except: return 0
         available_weeks = sorted(temp_df['week_num'].unique().tolist(), key=extract_week)
         weeks_list = ["All Weeks"] + available_weeks
         sel_week = st.selectbox("Filter by Week", weeks_list)
         
     with t3:
         recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True)
+
+    # --- NEW: ASSET SELECTOR PILLS ---
+    selected_assets = st.pills(
+        "Filter Assets", 
+        options=["DMMK", "nUSDT"], 
+        default=["DMMK", "nUSDT"], 
+        selection_mode="multi"
+    )
 
     # Apply Filtering Logic
     filtered_df = df.copy()
@@ -151,82 +160,77 @@ if st.session_state.stellar_data:
     if sel_week != "All Weeks":
         filtered_df = filtered_df[filtered_df['week_num'] == sel_week]
     
+    # Apply Time Recency
     now = datetime.now(timezone.utc)
     if recency == "Last 7 Days":
         filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(days=7))]
     elif recency == "Last 24 Hours":
         filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(hours=24))]
 
+    # Filter by Asset
+    if not selected_assets:
+        filtered_df = pd.DataFrame() # Empty if no pills selected
+    else:
+        filtered_df = filtered_df[filtered_df['asset'].isin(selected_assets)]
+
     st.markdown("---")
     
-    if filtered_df.empty:
-        st.warning("No transactions found matching the selected filters.")
+    if not selected_assets:
+        st.info("Select at least one asset (DMMK or nUSDT) to view data.")
+    elif filtered_df.empty:
+        # Specific check to see why it's empty
+        selected_str = " & ".join(selected_assets)
+        st.warning(f"No {selected_str} transactions found for the selected time period.")
     else:
         # --- TRANSACTION TABLE ---
         def format_val(row):
             return f"{row['amount']:,.2f}" if row['asset'] == "DMMK" else f"{row['amount']:,.7f}"
         
-        filtered_df['Amount'] = filtered_df.apply(format_val, axis=1)
+        # Copy to avoid SettingWithCopyWarning
+        display_df = filtered_df.copy()
+        display_df['Amount'] = display_df.apply(format_val, axis=1)
         
         def create_html_link(row):
-            safe_name = urllib.parse.quote(row['other_account'])
+            safe_name = urllib.parse.quote(str(row['other_account']))
             return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}" target="_self">{row["other_account"]}</a>'
         
-        filtered_df['Other Account'] = filtered_df.apply(create_html_link, axis=1)
+        display_df['Other Account'] = display_df.apply(create_html_link, axis=1)
         
-        display_tx_df = filtered_df[['timestamp', 'direction', 'Other Account', 'Amount', 'asset']].copy()
+        display_tx_df = display_df[['timestamp', 'direction', 'Other Account', 'Amount', 'asset']].copy()
         display_tx_df.columns = ['Timestamp', 'Direction', 'Other Account', 'Amount', 'Asset']
 
         st.write("**Transaction History**")
         st.markdown(display_tx_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
-        # --- UPDATED SUMMARY SECTION WITH SQUARE PILLS ---
+        # --- SUMMARY SECTION ---
         st.markdown("---")
         st.subheader("Summary by Account")
         
-        # Square button-style multi-selector
-        # Default selects both assets
-        selected_assets = st.pills(
-            "Filter Assets", 
-            options=["DMMK", "nUSDT"], 
-            default=["DMMK", "nUSDT"], 
-            selection_mode="multi"
-        )
-        
         summary_df = filtered_df.copy()
+        summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
+        summary_df['Outgoing'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "OUTGOING" else 0, axis=1)
+
+        account_summary = summary_df.groupby(['other_account', 'other_account_id', 'asset']).agg(
+            Outgoing=('Outgoing', 'sum'),
+            Incoming=('Incoming', 'sum'),
+            Total_Volume=('amount', 'sum'),
+            Tx_Count=('amount', 'count')
+        ).reset_index()
         
-        # Filter dataframe based on active pills
-        if not selected_assets:
-            st.info("Select at least one asset to view the summary.")
-            summary_df = pd.DataFrame() 
-        else:
-            summary_df = summary_df[summary_df['asset'].isin(selected_assets)]
+        account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
+        account_summary = account_summary.sort_values("Tx_Count", ascending=False).head(10)
 
-        if not summary_df.empty:
-            summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
-            summary_df['Outgoing'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "OUTGOING" else 0, axis=1)
+        account_summary['Other Account'] = account_summary.apply(create_html_link, axis=1)
+        account_summary['Total_Volume'] = account_summary['Total_Volume'].apply(lambda x: f"{x:,.2f}")
+        account_summary['Incoming'] = account_summary['Incoming'].apply(lambda x: f"{x:,.2f}")
+        account_summary['Outgoing'] = account_summary['Outgoing'].apply(lambda x: f"{x:,.2f}")
+        account_summary['Net_Difference'] = account_summary['Net_Difference'].apply(lambda x: f"{x:,.2f}")
 
-            account_summary = summary_df.groupby(['other_account', 'other_account_id', 'asset']).agg(
-                Outgoing=('Outgoing', 'sum'),
-                Incoming=('Incoming', 'sum'),
-                Total_Volume=('amount', 'sum'),
-                Tx_Count=('amount', 'count')
-            ).reset_index()
-            
-            account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
-            account_summary = account_summary.sort_values("Tx_Count", ascending=False).head(10)
+        display_summary_df = account_summary[['Other Account', 'asset', 'Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference', 'Tx_Count']].copy()
+        display_summary_df.columns = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']
 
-            account_summary['Other Account'] = account_summary.apply(create_html_link, axis=1)
-            account_summary['Total_Volume'] = account_summary['Total_Volume'].apply(lambda x: f"{x:,.2f}")
-            account_summary['Incoming'] = account_summary['Incoming'].apply(lambda x: f"{x:,.2f}")
-            account_summary['Outgoing'] = account_summary['Outgoing'].apply(lambda x: f"{x:,.2f}")
-            account_summary['Net_Difference'] = account_summary['Net_Difference'].apply(lambda x: f"{x:,.2f}")
-
-            display_summary_df = account_summary[['Other Account', 'asset', 'Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference', 'Tx_Count']].copy()
-            display_summary_df.columns = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']
-
-            st.write("**Top 10 Accounts by Transaction Count**")
-            st.markdown(display_summary_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+        st.write("**Top 10 Accounts by Transaction Count**")
+        st.markdown(display_summary_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
