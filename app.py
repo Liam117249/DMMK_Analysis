@@ -11,7 +11,7 @@ from stellar_logic import (
 # 1. Page Configuration
 st.set_page_config(page_title="NUGpay Pro Dashboard", layout="wide")
 
-# Inject Custom CSS to make HTML tables look like Streamlit native tables
+# Custom CSS for table styling
 st.markdown("""
 <style>
     table.dataframe {
@@ -52,12 +52,10 @@ if 'display_name' not in st.session_state:
 if 'analysis_months' not in st.session_state:
     st.session_state.analysis_months = 1
 
-# Streamlit Cache to remember queries for 1 hour
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_cached_analysis(target_id, months):
     return analyze_stellar_account(target_id, months=months)
 
-# Centralized data loader
 def load_account_data(identifier, months):
     with st.spinner(f"Resolving identity and fetching history for {identifier}..."):
         target_id = None
@@ -84,7 +82,7 @@ def load_account_data(identifier, months):
             st.error("Username or ID not found.")
         return False
 
-# --- URL QUERY PARAMETER CHECK ---
+# URL Query Parameter Check
 target_from_url = st.query_params.get("target_account")
 name_from_url = st.query_params.get("name")
 
@@ -130,7 +128,6 @@ if st.session_state.stellar_data:
     st.subheader("Interactive Filters")
     t1, t2, t3 = st.columns(3)
     with t1:
-        # Fixed: Chronological month sorting instead of alphabetical
         chronological_months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
         available_months = [m for m in chronological_months if m in df['month_name'].unique()]
         months_list = ["All Months"] + available_months
@@ -138,11 +135,8 @@ if st.session_state.stellar_data:
         
     with t2:
         temp_df = df if sel_month == "All Months" else df[df['month_name'] == sel_month]
-        
-        # Fixed: Numerical week sorting instead of alphabetical (e.g., Week 2 comes before Week 10)
         def extract_week(w):
             return int(w.replace("Week ", ""))
-            
         available_weeks = sorted(temp_df['week_num'].unique().tolist(), key=extract_week)
         weeks_list = ["All Weeks"] + available_weeks
         sel_week = st.selectbox("Filter by Week", weeks_list)
@@ -165,11 +159,10 @@ if st.session_state.stellar_data:
 
     st.markdown("---")
     
-    # --- SAFEGUARD: Check if the strict filters emptied the dataframe ---
     if filtered_df.empty:
         st.warning("No transactions found matching the selected filters.")
     else:
-        # --- TRANSACTION TABLE (HTML) ---
+        # --- TRANSACTION TABLE ---
         def format_val(row):
             return f"{row['amount']:,.2f}" if row['asset'] == "DMMK" else f"{row['amount']:,.7f}"
         
@@ -187,19 +180,29 @@ if st.session_state.stellar_data:
         st.write("**Transaction History**")
         st.markdown(display_tx_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
-        # --- SUMMARY TABLE (HTML) ---
+        # --- UPDATED SUMMARY SECTION WITH SQUARE PILLS ---
         st.markdown("---")
         st.subheader("Summary by Account")
         
-        summary_asset = st.radio("Asset Filter", ["Both", "DMMK", "nUSDT"], horizontal=True)
+        # Square button-style multi-selector
+        # Default selects both assets
+        selected_assets = st.pills(
+            "Filter Assets", 
+            options=["DMMK", "nUSDT"], 
+            default=["DMMK", "nUSDT"], 
+            selection_mode="multi"
+        )
         
         summary_df = filtered_df.copy()
-        if summary_asset != "Both":
-            summary_df = summary_df[summary_df['asset'] == summary_asset]
-
-        if summary_df.empty:
-            st.info(f"No {summary_asset} transactions found for this account under the current filters.")
+        
+        # Filter dataframe based on active pills
+        if not selected_assets:
+            st.info("Select at least one asset to view the summary.")
+            summary_df = pd.DataFrame() 
         else:
+            summary_df = summary_df[summary_df['asset'].isin(selected_assets)]
+
+        if not summary_df.empty:
             summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
             summary_df['Outgoing'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "OUTGOING" else 0, axis=1)
 
@@ -214,7 +217,6 @@ if st.session_state.stellar_data:
             account_summary = account_summary.sort_values("Tx_Count", ascending=False).head(10)
 
             account_summary['Other Account'] = account_summary.apply(create_html_link, axis=1)
-
             account_summary['Total_Volume'] = account_summary['Total_Volume'].apply(lambda x: f"{x:,.2f}")
             account_summary['Incoming'] = account_summary['Incoming'].apply(lambda x: f"{x:,.2f}")
             account_summary['Outgoing'] = account_summary['Outgoing'].apply(lambda x: f"{x:,.2f}")
