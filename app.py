@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import urllib.parse
 from datetime import datetime, timezone, timedelta
 from stellar_logic import (
     analyze_stellar_account, 
@@ -9,6 +10,39 @@ from stellar_logic import (
 
 # 1. Page Configuration
 st.set_page_config(page_title="NUGpay Pro Dashboard", layout="wide")
+
+# Inject Custom CSS to make HTML tables look like Streamlit native tables
+st.markdown("""
+<style>
+    table.dataframe {
+        width: 100%;
+        border-collapse: collapse;
+        border: none;
+        font-family: sans-serif;
+    }
+    table.dataframe th, table.dataframe td {
+        padding: 10px 12px;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+        text-align: left;
+    }
+    table.dataframe th {
+        font-size: 14px;
+        color: rgba(128, 128, 128, 0.8);
+        font-weight: 600;
+    }
+    table.dataframe tr:hover {
+        background-color: rgba(128, 128, 128, 0.1);
+    }
+    a.account-link {
+        text-decoration: none;
+        color: #1f77b4;
+        font-weight: 600;
+    }
+    a.account-link:hover {
+        text-decoration: underline;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # 2. Session State Initialization
 if 'stellar_data' not in st.session_state:
@@ -36,7 +70,7 @@ def load_account_data(identifier, months):
             if data:
                 st.session_state.stellar_data = data
                 st.session_state.display_name = current_name
-                # Update URL parameters so users can share links
+                # Update URL parameters so links work in the same tab
                 st.query_params["target_account"] = target_id
                 st.query_params["name"] = current_name
                 return True
@@ -47,7 +81,7 @@ def load_account_data(identifier, months):
         return False
 
 # --- URL QUERY PARAMETER CHECK ---
-# If someone clicked a link from the dataframe, it opens a tab with parameters
+# Checks if the page loaded from a link click
 target_from_url = st.query_params.get("target_account")
 name_from_url = st.query_params.get("name")
 
@@ -116,31 +150,27 @@ if st.session_state.stellar_data:
 
     st.markdown("---")
     
-    # --- TRANSACTION TABLE ---
+    # --- TRANSACTION TABLE (HTML) ---
     def format_val(row):
         return f"{row['amount']:,.2f}" if row['asset'] == "DMMK" else f"{row['amount']:,.7f}"
     
-    filtered_df['formatted_amount'] = filtered_df.apply(format_val, axis=1)
+    filtered_df['Amount'] = filtered_df.apply(format_val, axis=1)
     
-    # Create the clickable link column data
-    filtered_df['Account_Link'] = filtered_df.apply(
-        lambda x: f"/?target_account={x['other_account_id']}&name={x['other_account']}", axis=1
-    )
+    # Create HTML links targeting _self
+    def create_html_link(row):
+        safe_name = urllib.parse.quote(row['other_account'])
+        return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}" target="_self">{row["other_account"]}</a>'
+    
+    filtered_df['Other Account'] = filtered_df.apply(create_html_link, axis=1)
+    
+    # Select and rename columns for display
+    display_tx_df = filtered_df[['timestamp', 'direction', 'Other Account', 'Amount', 'asset']].copy()
+    display_tx_df.columns = ['Timestamp', 'Direction', 'Other Account', 'Amount', 'Asset']
 
     st.write("**Transaction History**")
-    st.dataframe(
-        filtered_df[["timestamp", "direction", "Account_Link", "formatted_amount", "asset"]],
-        column_config={
-            "Account_Link": st.column_config.LinkColumn(
-                "Other Account",
-                # Regex extracts just the display name from the URL string for the UI
-                display_text=r"name=([^&]+)"
-            )
-        },
-        use_container_width=True, hide_index=True
-    )
+    st.markdown(display_tx_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
-    # --- SUMMARY TABLE ---
+    # --- SUMMARY TABLE (HTML) ---
     st.markdown("---")
     st.subheader("Summary by Account")
     
@@ -155,35 +185,4 @@ if st.session_state.stellar_data:
 
     account_summary = summary_df.groupby(['other_account', 'other_account_id', 'asset']).agg(
         Outgoing=('Outgoing', 'sum'),
-        Incoming=('Incoming', 'sum'),
-        Total_Volume=('amount', 'sum'),
-        Tx_Count=('amount', 'count')
-    ).reset_index()
-    
-    account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
-    account_summary = account_summary.sort_values("Tx_Count", ascending=False).head(10)
-
-    # Re-apply the link generation for the summary table
-    account_summary['Account_Link'] = account_summary.apply(
-        lambda x: f"/?target_account={x['other_account_id']}&name={x['other_account']}", axis=1
-    )
-
-    st.write("**Top 10 Accounts by Transaction Count**")
-    st.dataframe(
-        account_summary[["Account_Link", "asset", "Total_Volume", "Incoming", "Outgoing", "Net_Difference", "Tx_Count"]],
-        column_config={
-            "Account_Link": st.column_config.LinkColumn(
-                "Other Account",
-                display_text=r"name=([^&]+)"
-            ),
-            "Total_Volume": st.column_config.NumberColumn("Total Volume", format="%,.2f"),
-            "Outgoing": st.column_config.NumberColumn("Total Outgoing", format="%,.2f"),
-            "Incoming": st.column_config.NumberColumn("Total Incoming", format="%,.2f"),
-            "Net_Difference": st.column_config.NumberColumn("Net Balance", format="%,.2f"),
-        },
-        use_container_width=True, hide_index=True
-    )
-
-    st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
-else:
-    st.info("Enter a Username or Account ID in the sidebar to begin.")
+        Incoming=('Incoming
