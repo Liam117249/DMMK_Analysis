@@ -25,12 +25,10 @@ def resolve_username_to_id(username):
     """Translates 'name' or 'name*domain' into a G-Address."""
     if not username: return None
     
-    # Default to nugpay.app if no domain provided
     full_address = username if "*" in username else f"{username}*nugpay.app"
     domain = full_address.split("*")[1]
     
     try:
-        # Get federation server for the specific domain
         toml_url = f"https://{domain}/.well-known/stellar.toml"
         res = requests.get(toml_url, timeout=5)
         fed_url = None
@@ -122,6 +120,7 @@ def analyze_stellar_account(account_id, months=1):
                     "week_num": f"Week {dt.isocalendar()[1]}",
                     "direction": "OUTGOING" if is_sender else "INCOMING",
                     "other_account": display_name,
+                    "other_account_id": raw_other_account, # Added to support row-click navigation
                     "amount": float(final_val),
                     "asset": asset_code
                 })
