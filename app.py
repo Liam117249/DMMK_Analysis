@@ -52,9 +52,14 @@ if 'display_name' not in st.session_state:
 if 'analysis_months' not in st.session_state:
     st.session_state.analysis_months = 1
 
+# Streamlit Cache to remember queries for 1 hour
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_cached_analysis(target_id, months):
+    return analyze_stellar_account(target_id, months=months)
+
 # Centralized data loader
 def load_account_data(identifier, months):
-    with st.spinner(f"Resolving identity for {identifier}..."):
+    with st.spinner(f"Resolving identity and fetching history for {identifier}..."):
         target_id = None
         current_name = identifier
         
@@ -66,11 +71,11 @@ def load_account_data(identifier, months):
             target_id = resolve_username_to_id(identifier)
         
         if target_id:
-            data = analyze_stellar_account(target_id, months=months)
+            # Using the cached function here
+            data = fetch_cached_analysis(target_id, months)
             if data:
                 st.session_state.stellar_data = data
                 st.session_state.display_name = current_name
-                # Update URL parameters so links work in the same tab
                 st.query_params["target_account"] = target_id
                 st.query_params["name"] = current_name
                 return True
@@ -81,7 +86,6 @@ def load_account_data(identifier, months):
         return False
 
 # --- URL QUERY PARAMETER CHECK ---
-# Checks if the page loaded from a link click
 target_from_url = st.query_params.get("target_account")
 name_from_url = st.query_params.get("name")
 
@@ -108,6 +112,7 @@ if clear_btn:
     st.session_state.stellar_data = None
     st.session_state.display_name = ""
     st.query_params.clear()
+    fetch_cached_analysis.clear() # Clears the Streamlit cache
     st.rerun()
 
 if run_btn and user_input:
@@ -156,14 +161,12 @@ if st.session_state.stellar_data:
     
     filtered_df['Amount'] = filtered_df.apply(format_val, axis=1)
     
-    # Create HTML links targeting _self
     def create_html_link(row):
         safe_name = urllib.parse.quote(row['other_account'])
         return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}" target="_self">{row["other_account"]}</a>'
     
     filtered_df['Other Account'] = filtered_df.apply(create_html_link, axis=1)
     
-    # Select and rename columns for display
     display_tx_df = filtered_df[['timestamp', 'direction', 'Other Account', 'Amount', 'asset']].copy()
     display_tx_df.columns = ['Timestamp', 'Direction', 'Other Account', 'Amount', 'Asset']
 
@@ -180,7 +183,6 @@ if st.session_state.stellar_data:
     if summary_asset != "Both":
         summary_df = summary_df[summary_df['asset'] == summary_asset]
 
-    # CHECK FOR EMPTY DATAFRAME TO PREVENT VALUE ERROR
     if summary_df.empty:
         st.info(f"No {summary_asset} transactions found for this account in the selected timeframe.")
     else:
@@ -197,10 +199,8 @@ if st.session_state.stellar_data:
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
         account_summary = account_summary.sort_values("Tx_Count", ascending=False).head(10)
 
-        # Re-apply the HTML link generation
         account_summary['Other Account'] = account_summary.apply(create_html_link, axis=1)
 
-        # Format numbers for display in HTML
         account_summary['Total_Volume'] = account_summary['Total_Volume'].apply(lambda x: f"{x:,.2f}")
         account_summary['Incoming'] = account_summary['Incoming'].apply(lambda x: f"{x:,.2f}")
         account_summary['Outgoing'] = account_summary['Outgoing'].apply(lambda x: f"{x:,.2f}")
