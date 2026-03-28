@@ -145,7 +145,7 @@ if st.session_state.stellar_data:
     with t3:
         recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True)
 
-    # --- NEW: ASSET SELECTOR PILLS ---
+    # Asset Selector Pills
     selected_assets = st.pills(
         "Filter Assets", 
         options=["DMMK", "nUSDT"], 
@@ -160,16 +160,15 @@ if st.session_state.stellar_data:
     if sel_week != "All Weeks":
         filtered_df = filtered_df[filtered_df['week_num'] == sel_week]
     
-    # Apply Time Recency
     now = datetime.now(timezone.utc)
     if recency == "Last 7 Days":
         filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(days=7))]
     elif recency == "Last 24 Hours":
         filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(hours=24))]
 
-    # Filter by Asset
+    # Filter by Asset Selection
     if not selected_assets:
-        filtered_df = pd.DataFrame() # Empty if no pills selected
+        filtered_df = pd.DataFrame()
     else:
         filtered_df = filtered_df[filtered_df['asset'].isin(selected_assets)]
 
@@ -178,7 +177,6 @@ if st.session_state.stellar_data:
     if not selected_assets:
         st.info("Select at least one asset (DMMK or nUSDT) to view data.")
     elif filtered_df.empty:
-        # Specific check to see why it's empty
         selected_str = " & ".join(selected_assets)
         st.warning(f"No {selected_str} transactions found for the selected time period.")
     else:
@@ -186,7 +184,6 @@ if st.session_state.stellar_data:
         def format_val(row):
             return f"{row['amount']:,.2f}" if row['asset'] == "DMMK" else f"{row['amount']:,.7f}"
         
-        # Copy to avoid SettingWithCopyWarning
         display_df = filtered_df.copy()
         display_df['Amount'] = display_df.apply(format_val, axis=1)
         
@@ -202,10 +199,24 @@ if st.session_state.stellar_data:
         st.write("**Transaction History**")
         st.markdown(display_tx_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
-        # --- SUMMARY SECTION ---
+        # --- SUMMARY SECTION WITH SORTING ---
         st.markdown("---")
         st.subheader("Summary by Account")
         
+        # Sorting Controls
+        s1, s2 = st.columns([2, 1])
+        with s1:
+            sort_metric = st.selectbox(
+                "Sort Summary By", 
+                options=["Tx_Count", "Total_Volume", "Net_Difference", "Incoming", "Outgoing"],
+                index=0,
+                format_func=lambda x: x.replace("_", " ")
+            )
+        with s2:
+            sort_order = st.radio("Order", ["Descending", "Ascending"], horizontal=True)
+        
+        ascending_bool = (sort_order == "Ascending")
+
         summary_df = filtered_df.copy()
         summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
         summary_df['Outgoing'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "OUTGOING" else 0, axis=1)
@@ -218,19 +229,26 @@ if st.session_state.stellar_data:
         ).reset_index()
         
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
-        account_summary = account_summary.sort_values("Tx_Count", ascending=False).head(10)
+        
+        # Apply Dynamic Sorting
+        account_summary = account_summary.sort_values(sort_metric, ascending=ascending_bool).head(10)
 
-        account_summary['Other Account'] = account_summary.apply(create_html_link, axis=1)
-        account_summary['Total_Volume'] = account_summary['Total_Volume'].apply(lambda x: f"{x:,.2f}")
-        account_summary['Incoming'] = account_summary['Incoming'].apply(lambda x: f"{x:,.2f}")
-        account_summary['Outgoing'] = account_summary['Outgoing'].apply(lambda x: f"{x:,.2f}")
-        account_summary['Net_Difference'] = account_summary['Net_Difference'].apply(lambda x: f"{x:,.2f}")
+        # Format for Display
+        account_summary['Other Account Link'] = account_summary.apply(create_html_link, axis=1)
+        
+        # Create display copy to avoid string-formatting numbers before sorting
+        disp_summary = account_summary.copy()
+        disp_summary['Total Volume'] = disp_summary['Total_Volume'].apply(lambda x: f"{x:,.2f}")
+        disp_summary['Incoming'] = disp_summary['Incoming'].apply(lambda x: f"{x:,.2f}")
+        disp_summary['Outgoing'] = disp_summary['Outgoing'].apply(lambda x: f"{x:,.2f}")
+        disp_summary['Net Balance'] = disp_summary['Net_Difference'].apply(lambda x: f"{x:,.2f}")
 
-        display_summary_df = account_summary[['Other Account', 'asset', 'Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference', 'Tx_Count']].copy()
-        display_summary_df.columns = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']
+        final_summary_cols = ['Other Account Link', 'asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx_Count']
+        disp_summary = disp_summary[final_summary_cols]
+        disp_summary.columns = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']
 
-        st.write("**Top 10 Accounts by Transaction Count**")
-        st.markdown(display_summary_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+        st.write(f"**Top 10 Accounts (Sorted by {sort_metric.replace('_', ' ')})**")
+        st.markdown(disp_summary.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
