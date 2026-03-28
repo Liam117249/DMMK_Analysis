@@ -180,34 +180,42 @@ if st.session_state.stellar_data:
     if summary_asset != "Both":
         summary_df = summary_df[summary_df['asset'] == summary_asset]
 
-    summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
-    summary_df['Outgoing'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "OUTGOING" else 0, axis=1)
+    # CHECK FOR EMPTY DATAFRAME TO PREVENT VALUE ERROR
+    if summary_df.empty:
+        st.info(f"No {summary_asset} transactions found for this account in the selected timeframe.")
+    else:
+        summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
+        summary_df['Outgoing'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "OUTGOING" else 0, axis=1)
 
-    account_summary = summary_df.groupby(['other_account', 'other_account_id', 'asset']).agg(
-        Outgoing=('Outgoing', 'sum'),
-        Incoming=('Incoming', 'sum'),
-        Total_Volume=('amount', 'sum'),
-        Tx_Count=('amount', 'count')
-    ).reset_index()
-    
-    account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
-    account_summary = account_summary.sort_values("Tx_Count", ascending=False).head(10)
+        account_summary = summary_df.groupby(['other_account', 'other_account_id', 'asset']).agg(
+            Outgoing=('Outgoing', 'sum'),
+            Incoming=('Incoming', 'sum'),
+            Total_Volume=('amount', 'sum'),
+            Tx_Count=('amount', 'count')
+        ).reset_index()
+        
+        account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
+        account_summary = account_summary.sort_values("Tx_Count", ascending=False).head(10)
 
-    # Re-apply the HTML link generation
-    account_summary['Other Account'] = account_summary.apply(create_html_link, axis=1)
+        # Re-apply the HTML link generation
+        account_summary['Other Account'] = account_summary.apply(create_html_link, axis=1)
 
-    # Format numbers for display in HTML
-    account_summary['Total_Volume'] = account_summary['Total_Volume'].apply(lambda x: f"{x:,.2f}")
-    account_summary['Incoming'] = account_summary['Incoming'].apply(lambda x: f"{x:,.2f}")
-    account_summary['Outgoing'] = account_summary['Outgoing'].apply(lambda x: f"{x:,.2f}")
-    account_summary['Net_Difference'] = account_summary['Net_Difference'].apply(lambda x: f"{x:,.2f}")
+        # Format numbers for display in HTML
+        account_summary['Total_Volume'] = account_summary['Total_Volume'].apply(lambda x: f"{x:,.2f}")
+        account_summary['Incoming'] = account_summary['Incoming'].apply(lambda x: f"{x:,.2f}")
+        account_summary['Outgoing'] = account_summary['Outgoing'].apply(lambda x: f"{x:,.2f}")
+        account_summary['Net_Difference'] = account_summary['Net_Difference'].apply(lambda x: f"{x:,.2f}")
 
-    display_summary_df = account_summary[['Other Account', 'asset', 'Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference', 'Tx_Count']].copy()
-    display_summary_df.columns = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']
+        display_summary_df = account_summary[['Other Account', 'asset', 'Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference', 'Tx_Count']].copy()
+        display_summary_df.columns = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']
 
-    st.write("**Top 10 Accounts by Transaction Count**")
-    st.markdown(display_summary_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+        st.write("**Top 10 Accounts by Transaction Count**")
+        st.markdown(display_summary_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
+else:
+    st.info("Enter a Username or Account ID in the sidebar to begin.")
     st.markdown("<br>", unsafe_allow_html=True)
     st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
 else:
