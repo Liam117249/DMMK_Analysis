@@ -44,16 +44,19 @@ st.markdown("""
     a.account-link:hover {
         text-decoration: underline;
     }
-    /* Subtle Sidebar Link */
-    .sidebar-nav {
+    /* Subtle Text Link Style */
+    .subtle-jump {
         font-size: 0.85rem;
-        color: #888 !important;
-        text-decoration: none;
-    }
-    .sidebar-nav:hover {
         color: #1f77b4 !important;
+        text-decoration: none;
+        border-bottom: 1px dashed #1f77b4;
+        display: inline-block;
+        margin-top: 5px;
     }
-    /* Subtle Back to Top */
+    .subtle-jump:hover {
+        color: #0d47a1 !important;
+        border-bottom: 1px solid #0d47a1;
+    }
     .back-top {
         font-size: 0.8rem;
         color: #aaa !important;
@@ -131,16 +134,10 @@ if clear_btn:
     fetch_cached_analysis.clear() 
     st.rerun()
 
-# Subtly add the "Jump" link at the bottom of the sidebar if data exists
-if st.session_state.stellar_data:
-    st.sidebar.markdown("---")
-    st.sidebar.markdown('<a href="#summary-section" class="sidebar-nav">⚓ Jump to Account Summary</a>', unsafe_allow_html=True)
-
 if run_btn and user_input:
     load_account_data(user_input, analysis_months)
 
 # 4. Main Dashboard
-# Invisible anchor for "Back to Top"
 st.markdown("<div id='top-anchor'></div>", unsafe_allow_html=True)
 
 if st.session_state.display_name:
@@ -171,6 +168,8 @@ if st.session_state.stellar_data:
         
     with t3:
         recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True)
+        # Subtle Jump Link placed directly under Quick Tracker
+        st.markdown('<a href="#summary-section" class="subtle-jump">⚓ Jump to Account Summary</a>', unsafe_allow_html=True)
 
     # Asset Selector Pills
     selected_assets = st.pills(
@@ -229,7 +228,6 @@ if st.session_state.stellar_data:
         st.markdown(display_tx_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
         # --- SUMMARY SECTION ---
-        # Subtle anchor for jumping
         st.markdown("<div id='summary-section' style='padding-top:20px;'></div>", unsafe_allow_html=True)
         st.markdown("---")
         st.subheader("Summary by Account")
@@ -246,7 +244,7 @@ if st.session_state.stellar_data:
         with s2:
             sort_order = st.radio("Order", ["Descending", "Ascending"], horizontal=True)
         
-        ascending_bool = (sort_order == "Ascending")
+        ascending_bool = (sort_order == "Descending")
 
         summary_df = filtered_df.copy()
         summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
@@ -278,7 +276,6 @@ if st.session_state.stellar_data:
         st.markdown(disp_summary.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        # Subtle "Back to Top" link
         st.markdown('<a href="#top-anchor" class="back-top">↑ Back to Top</a>', unsafe_allow_html=True)
         st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
 else:
