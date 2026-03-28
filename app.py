@@ -191,7 +191,7 @@ if st.session_state.stellar_data:
         st.markdown("---")
         st.subheader("Summary by Account")
         
-        summary_asset = st.radio("Asset Filter (Summary Only)", ["Both", "DMMK", "nUSDT"], horizontal=True)
+        summary_asset = st.radio("Asset Filter", ["Both", "DMMK", "nUSDT"], horizontal=True)
         
         summary_df = filtered_df.copy()
         if summary_asset != "Both":
