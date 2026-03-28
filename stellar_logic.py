@@ -3,12 +3,15 @@ from datetime import datetime, timedelta, timezone
 from stellar_sdk import Server
 from decimal import Decimal, getcontext
 import requests
+import concurrent.futures
+from functools import lru_cache
 
 # Fixed-point precision for blockchain math
 getcontext().prec = 28 
 
+@lru_cache(maxsize=1)
 def get_federation_server():
-    """Fetches the federation URL dynamically from nugpay.app."""
+    """Fetches the federation URL dynamically and caches the result."""
     try:
         url = "https://nugpay.app/.well-known/stellar.toml"
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -61,41 +64,37 @@ def resolve_id_to_name(account_id):
         pass
     return None
 
-def get_account_name(account_id, cache_dict, federation_url):
-    """Checks cache or Federation API for transaction history names."""
+@lru_cache(maxsize=2048)
+def fetch_account_name(account_id, federation_url):
+    """Fetches a single name and caches it globally in memory."""
     if not account_id or len(account_id) < 16: return account_id
-    if account_id in cache_dict: return cache_dict[account_id]
-
     if federation_url:
         url = f"{federation_url}?q={account_id}&type=id"
         try:
-            response = requests.get(url, timeout=5)
+            response = requests.get(url, timeout=3)
             if response.status_code == 200:
                 stellar_address = response.json().get("stellar_address", "")
                 if stellar_address and "*" in stellar_address:
-                    username = stellar_address.split("*")[0]
-                    cache_dict[account_id] = username
-                    return username
+                    return stellar_address.split("*")[0]
         except:
             pass
-
-    fallback = f"{account_id[:8]}*******{account_id[-8:]}"
-    cache_dict[account_id] = fallback
-    return fallback
+    return f"{account_id[:8]}*******{account_id[-8:]}"
 
 def analyze_stellar_account(account_id, months=1):
     server = Server("https://horizon.stellar.org")
     now_utc = datetime.now(timezone.utc)
     start_date = now_utc - timedelta(days=30 * months)
     
-    processed_data = []
-    name_cache = {} 
     federation_url = get_federation_server()
+    
+    raw_data = []
+    unique_other_accounts = set()
     
     try:
         payments_call = server.payments().for_account(account_id).order(desc=True).limit(200)
         records = payments_call.call()
 
+        # Step 1: Collect all transactions as fast as possible
         while records['_embedded']['records']:
             for record in records['_embedded']['records']:
                 dt = datetime.strptime(record['created_at'], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
@@ -111,22 +110,34 @@ def analyze_stellar_account(account_id, months=1):
                 is_sender = record.get('from') == account_id
                 raw_other_account = record.get('to') if is_sender else record.get('from')
                 
-                display_name = get_account_name(raw_other_account, name_cache, federation_url)
+                unique_other_accounts.add(raw_other_account)
                 
-                processed_data.append({
+                raw_data.append({
                     "timestamp": dt,
                     "date": dt.date(),
                     "month_name": dt.strftime("%B"),
                     "week_num": f"Week {dt.isocalendar()[1]}",
                     "direction": "OUTGOING" if is_sender else "INCOMING",
-                    "other_account": display_name,
-                    "other_account_id": raw_other_account, 
+                    "other_account_id": raw_other_account,
                     "amount": float(final_val),
                     "asset": asset_code
                 })
             records = payments_call.next()
             if not records['_embedded']['records']: break
-        return processed_data
+            
+        # Step 2: Resolve names concurrently (Multithreading)
+        name_mapping = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            futures = {executor.submit(fetch_account_name, acc, federation_url): acc for acc in unique_other_accounts}
+            for future in concurrent.futures.as_completed(futures):
+                acc_id = futures[future]
+                name_mapping[acc_id] = future.result()
+                
+        # Step 3: Map the names back to the records
+        for row in raw_data:
+            row["other_account"] = name_mapping.get(row["other_account_id"], row["other_account_id"])
+            
+        return raw_data
     except Exception as e:
         print(f"Error: {e}")
         return None
