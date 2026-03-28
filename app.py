@@ -15,14 +15,15 @@ if 'stellar_data' not in st.session_state:
     st.session_state.stellar_data = None
 if 'display_name' not in st.session_state:
     st.session_state.display_name = ""
+if 'analysis_months' not in st.session_state:
+    st.session_state.analysis_months = 1
 
-# Centralized loading function for both UI buttons and row clicks
+# Centralized data loader
 def load_account_data(identifier, months):
     with st.spinner(f"Resolving identity for {identifier}..."):
         target_id = None
         current_name = identifier
         
-        # Determine if input is a raw G-Address or a Username
         if identifier.startswith("G") and len(identifier) == 56:
             target_id = identifier
             found_name = resolve_id_to_name(identifier)
@@ -35,6 +36,9 @@ def load_account_data(identifier, months):
             if data:
                 st.session_state.stellar_data = data
                 st.session_state.display_name = current_name
+                # Update URL parameters so users can share links
+                st.query_params["target_account"] = target_id
+                st.query_params["name"] = current_name
                 return True
             else:
                 st.error("No transactions found.")
@@ -42,13 +46,15 @@ def load_account_data(identifier, months):
             st.error("Username or ID not found.")
         return False
 
-# Handle Navigation from clicked rows
-if 'next_account_to_load' in st.session_state:
-    acc_to_load = st.session_state.next_account_to_load
-    del st.session_state.next_account_to_load
-    load_account_data(acc_to_load, st.session_state.get('analysis_months', 1))
+# --- URL QUERY PARAMETER CHECK ---
+# If someone clicked a link from the dataframe, it opens a tab with parameters
+target_from_url = st.query_params.get("target_account")
+name_from_url = st.query_params.get("name")
 
-# 3. Sidebar
+if target_from_url and st.session_state.display_name != name_from_url:
+    load_account_data(target_from_url, st.session_state.analysis_months)
+
+# 3. Sidebar Configuration
 st.sidebar.header("Configuration")
 input_method = st.sidebar.radio("Search By", ["Username", "Account ID"])
 
@@ -57,7 +63,7 @@ if input_method == "Username":
 else:
     user_input = st.sidebar.text_input("Enter Stellar ID", placeholder="G...")
 
-analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 12, 1)
+analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 12, st.session_state.analysis_months)
 st.session_state.analysis_months = analysis_months 
 
 col_side1, col_side2 = st.sidebar.columns(2)
@@ -67,6 +73,7 @@ clear_btn = col_side2.button("Clear Cache", use_container_width=True)
 if clear_btn:
     st.session_state.stellar_data = None
     st.session_state.display_name = ""
+    st.query_params.clear()
     st.rerun()
 
 if run_btn and user_input:
@@ -110,31 +117,33 @@ if st.session_state.stellar_data:
     st.markdown("---")
     
     # --- TRANSACTION TABLE ---
-    st.write("**Transaction History** (Click a row to analyze that account)")
     def format_val(row):
         return f"{row['amount']:,.2f}" if row['asset'] == "DMMK" else f"{row['amount']:,.7f}"
     
     filtered_df['formatted_amount'] = filtered_df.apply(format_val, axis=1)
     
-    # Selection event handling for Tx Table
-    tx_event = st.dataframe(
-        filtered_df[["timestamp", "direction", "other_account", "formatted_amount", "asset"]],
-        use_container_width=True, hide_index=True,
-        selection_mode="single-row",
-        on_select="rerun"
+    # Create the clickable link column data
+    filtered_df['Account_Link'] = filtered_df.apply(
+        lambda x: f"/?target_account={x['other_account_id']}&name={x['other_account']}", axis=1
     )
-    
-    if tx_event.selection.rows:
-        sel_idx = tx_event.selection.rows[0]
-        selected_id = filtered_df.iloc[sel_idx]['other_account_id']
-        st.session_state.next_account_to_load = selected_id
-        st.rerun()
+
+    st.write("**Transaction History**")
+    st.dataframe(
+        filtered_df[["timestamp", "direction", "Account_Link", "formatted_amount", "asset"]],
+        column_config={
+            "Account_Link": st.column_config.LinkColumn(
+                "Other Account",
+                # Regex extracts just the display name from the URL string for the UI
+                display_text=r"name=([^&]+)"
+            )
+        },
+        use_container_width=True, hide_index=True
+    )
 
     # --- SUMMARY TABLE ---
     st.markdown("---")
     st.subheader("Summary by Account")
     
-    # Asset Filter specific to Summary section
     summary_asset = st.radio("Asset Filter (Summary Only)", ["Both", "DMMK", "nUSDT"], horizontal=True)
     
     summary_df = filtered_df.copy()
@@ -144,7 +153,6 @@ if st.session_state.stellar_data:
     summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
     summary_df['Outgoing'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "OUTGOING" else 0, axis=1)
 
-    # Grouping by both Display Name and ID so we retain the ID for clicking
     account_summary = summary_df.groupby(['other_account', 'other_account_id', 'asset']).agg(
         Outgoing=('Outgoing', 'sum'),
         Incoming=('Incoming', 'sum'),
@@ -153,31 +161,28 @@ if st.session_state.stellar_data:
     ).reset_index()
     
     account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
-
-    # Filter Top 10 by Transaction Count Descending
     account_summary = account_summary.sort_values("Tx_Count", ascending=False).head(10)
 
-    st.write("**Top 10 Accounts by Transaction Count** (Click a row to analyze that account)")
-    
-    # Selection event handling for Summary Table
-    summary_event = st.dataframe(
-        account_summary[["other_account", "asset", "Total_Volume", "Incoming", "Outgoing", "Net_Difference", "Tx_Count"]],
+    # Re-apply the link generation for the summary table
+    account_summary['Account_Link'] = account_summary.apply(
+        lambda x: f"/?target_account={x['other_account_id']}&name={x['other_account']}", axis=1
+    )
+
+    st.write("**Top 10 Accounts by Transaction Count**")
+    st.dataframe(
+        account_summary[["Account_Link", "asset", "Total_Volume", "Incoming", "Outgoing", "Net_Difference", "Tx_Count"]],
         column_config={
+            "Account_Link": st.column_config.LinkColumn(
+                "Other Account",
+                display_text=r"name=([^&]+)"
+            ),
             "Total_Volume": st.column_config.NumberColumn("Total Volume", format="%,.2f"),
             "Outgoing": st.column_config.NumberColumn("Total Outgoing", format="%,.2f"),
             "Incoming": st.column_config.NumberColumn("Total Incoming", format="%,.2f"),
             "Net_Difference": st.column_config.NumberColumn("Net Balance", format="%,.2f"),
         },
-        use_container_width=True, hide_index=True,
-        selection_mode="single-row",
-        on_select="rerun"
+        use_container_width=True, hide_index=True
     )
-
-    if summary_event.selection.rows:
-        sel_idx = summary_event.selection.rows[0]
-        selected_id = account_summary.iloc[sel_idx]['other_account_id']
-        st.session_state.next_account_to_load = selected_id
-        st.rerun()
 
     st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
 else:
