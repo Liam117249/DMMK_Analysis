@@ -11,9 +11,12 @@ from stellar_logic import (
 # 1. Page Configuration
 st.set_page_config(page_title="NUGpay Pro Dashboard", layout="wide")
 
-# Custom CSS for table styling
+# Custom CSS for table styling and smooth scrolling
 st.markdown("""
 <style>
+    html {
+        scroll-behavior: smooth;
+    }
     table.dataframe {
         width: 100%;
         border-collapse: collapse;
@@ -40,6 +43,16 @@ st.markdown("""
     }
     a.account-link:hover {
         text-decoration: underline;
+    }
+    .jump-link {
+        display: inline-block;
+        padding: 8px 16px;
+        background-color: #1f77b4;
+        color: white !important;
+        border-radius: 5px;
+        text-decoration: none;
+        font-weight: bold;
+        margin-bottom: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -116,6 +129,9 @@ if run_btn and user_input:
     load_account_data(user_input, analysis_months)
 
 # 4. Main Dashboard
+# Top anchor for "Back to Top" links
+st.markdown("<div id='top'></div>", unsafe_allow_html=True)
+
 if st.session_state.display_name:
     st.title(f"Dashboard: {st.session_state.display_name}")
 else:
@@ -149,9 +165,12 @@ if st.session_state.stellar_data:
     selected_assets = st.pills(
         "Filter Assets", 
         options=["DMMK", "nUSDT"], 
-        default=["DMMK", "nUSDT"], # Default both selected
+        default=["DMMK", "nUSDT"], 
         selection_mode="multi"
     )
+
+    # Navigation Button
+    st.markdown('<a href="#summary_section" class="jump-link">⬇️ Jump to Summary</a>', unsafe_allow_html=True)
 
     # Apply Filtering Logic
     filtered_df = df.copy()
@@ -182,8 +201,6 @@ if st.session_state.stellar_data:
     else:
         # --- TRANSACTION TABLE ---
         display_df = filtered_df.copy()
-        
-        # Clean Timestamp (Remove +00:00)
         display_df['Date/Time'] = display_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
         
         def format_val(row):
@@ -203,10 +220,12 @@ if st.session_state.stellar_data:
         st.write("**Transaction History**")
         st.markdown(display_tx_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
-        # --- SUMMARY SECTION WITH SORTING ---
+        # --- SUMMARY SECTION WITH ANCHOR ---
+        st.markdown("<br><div id='summary_section'></div>", unsafe_allow_html=True)
         st.markdown("---")
         st.subheader("Summary by Account")
         
+        # Sorting Controls
         s1, s2 = st.columns([2, 1])
         with s1:
             sort_metric = st.selectbox(
@@ -232,8 +251,6 @@ if st.session_state.stellar_data:
         ).reset_index()
         
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
-        
-        # Apply Sorting and get Top 10
         account_summary = account_summary.sort_values(sort_metric, ascending=ascending_bool).head(10)
 
         # Format Summary Table
@@ -252,6 +269,7 @@ if st.session_state.stellar_data:
         st.markdown(disp_summary.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<a href="#top" style="text-decoration:none;">⬆️ Back to Top</a>', unsafe_allow_html=True)
         st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
 else:
     st.info("Enter a Username or Account ID in the sidebar to begin.")
