@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import urllib.parse
 from datetime import datetime, timezone, timedelta
+from stellar_sdk import Server
 from stellar_logic import (
     analyze_stellar_account, 
     resolve_username_to_id, 
@@ -63,6 +64,10 @@ st.markdown("""
         text-decoration: none;
         float: right;
     }
+    /* KPI Metric Styling adjustments */
+    div[data-testid="stMetricValue"] {
+        font-size: 1.8rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -71,12 +76,39 @@ if 'stellar_data' not in st.session_state:
     st.session_state.stellar_data = None
 if 'display_name' not in st.session_state:
     st.session_state.display_name = ""
+if 'target_id' not in st.session_state:  
+    st.session_state.target_id = ""
 if 'analysis_months' not in st.session_state:
-    st.session_state.analysis_months = 1
+    url_months = st.query_params.get("months")
+    if url_months and url_months.isdigit():
+        st.session_state.analysis_months = int(url_months)
+    else:
+        st.session_state.analysis_months = 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_cached_analysis(target_id, months):
     return analyze_stellar_account(target_id, months=months)
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_balances(account_id):
+    """Fetches real-time account balances from the Stellar Horizon API."""
+    if not account_id: return 0.0, 0.0
+    server = Server("https://horizon.stellar.org")
+    try:
+        account = server.accounts().account_id(account_id).call()
+        balances = account.get('balances', [])
+        dmmk = 0.0
+        nusdt = 0.0
+        for b in balances:
+            asset_code = b.get('asset_code')
+            balance = float(b.get('balance', 0))
+            if asset_code == 'DMMK':
+                dmmk = balance * 1000.0  # Scale DMMK consistently
+            elif asset_code == 'nUSDT':
+                nusdt = balance
+        return dmmk, nusdt
+    except Exception as e:
+        return 0.0, 0.0
 
 def load_account_data(identifier, months):
     with st.spinner(f"Resolving identity and fetching history for {identifier}..."):
@@ -95,30 +127,44 @@ def load_account_data(identifier, months):
             if data:
                 st.session_state.stellar_data = data
                 st.session_state.display_name = current_name
+                st.session_state.target_id = target_id 
                 st.query_params["target_account"] = target_id
                 st.query_params["name"] = current_name
+                st.query_params["months"] = str(months)
                 return True
             else:
                 st.error("No transactions found.")
         else:
-            st.error("Username or ID not found.")
+            st.error("Account Name or ID not found.")
         return False
 
 # URL Query Parameter Check
 target_from_url = st.query_params.get("target_account")
 name_from_url = st.query_params.get("name")
+months_from_url = st.query_params.get("months")
 
 if target_from_url and st.session_state.display_name != name_from_url:
+    if months_from_url and months_from_url.isdigit():
+        st.session_state.analysis_months = int(months_from_url)
+    
     load_account_data(target_from_url, st.session_state.analysis_months)
 
 # 3. Sidebar Configuration
 st.sidebar.header("Configuration")
-input_method = st.sidebar.radio("Search By", ["Username", "Account ID"])
+input_method = st.sidebar.radio("Search By", ["Account Name", "Account ID"])
 
-if input_method == "Username":
-    user_input = st.sidebar.text_input("Enter Name", placeholder="e.g. sithu")
+if input_method == "Account Name":
+    user_input = st.sidebar.text_input(
+        "Enter Name", 
+        value=st.session_state.display_name, 
+        placeholder="e.g. sithu"
+    )
 else:
-    user_input = st.sidebar.text_input("Enter Stellar ID", placeholder="G...")
+    user_input = st.sidebar.text_input(
+        "Enter Account ID", 
+        value=st.session_state.target_id,    
+        placeholder="G..."
+    )
 
 analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 12, st.session_state.analysis_months)
 st.session_state.analysis_months = analysis_months 
@@ -130,8 +176,10 @@ clear_btn = col_side2.button("Clear Cache", use_container_width=True)
 if clear_btn:
     st.session_state.stellar_data = None
     st.session_state.display_name = ""
+    st.session_state.target_id = "" 
     st.query_params.clear()
     fetch_cached_analysis.clear() 
+    fetch_balances.clear()
     st.rerun()
 
 if run_btn and user_input:
@@ -141,12 +189,24 @@ if run_btn and user_input:
 st.markdown("<div id='top-anchor'></div>", unsafe_allow_html=True)
 
 if st.session_state.display_name:
-    st.title(f"Dashboard: {st.session_state.display_name}")
+    st.title(f"{st.session_state.display_name}*nugpay.app 🪙")
 else:
     st.title("NUGpay User Analytics")
 
 if st.session_state.stellar_data:
     df = pd.DataFrame(st.session_state.stellar_data)
+
+    # --- KPI SECTION (CURRENT BALANCES) ---
+    st.subheader("Current Balance")
+    dmmk_bal, nusdt_bal = fetch_balances(st.session_state.target_id)
+    
+    b1, b2, b3 = st.columns([1, 1, 2])
+    with b1:
+        st.metric("DMMK", f"{dmmk_bal:,.2f}")
+    with b2:
+        st.metric("nUSDT", f"{nusdt_bal:,.7f}")
+        
+    st.markdown("---")
 
     # --- FILTERS ---
     st.subheader("Interactive Filters")
@@ -168,7 +228,6 @@ if st.session_state.stellar_data:
         
     with t3:
         recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True)
-        # Subtle Jump Link placed directly under Quick Tracker
         st.markdown('<a href="#summary-section" class="subtle-jump">Jump to Account Summary</a>', unsafe_allow_html=True)
 
     # Asset Selector Pills
@@ -192,7 +251,6 @@ if st.session_state.stellar_data:
     elif recency == "Last 24 Hours":
         filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(hours=24))]
 
-    # Filter by Asset Selection
     if not selected_assets:
         filtered_df = pd.DataFrame()
     else:
@@ -217,7 +275,8 @@ if st.session_state.stellar_data:
         
         def create_html_link(row):
             safe_name = urllib.parse.quote(str(row['other_account']))
-            return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}" target="_self">{row["other_account"]}</a>'
+            current_months = st.session_state.analysis_months
+            return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={current_months}" target="_self">{row["other_account"]}</a>'
         
         display_df['Other Account'] = display_df.apply(create_html_link, axis=1)
         
@@ -226,6 +285,24 @@ if st.session_state.stellar_data:
 
         st.write("**Transaction History**")
         st.markdown(display_tx_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+
+        # Download Button for Transaction History (Clean Data without HTML links)
+        clean_tx_df = filtered_df.rename(columns={
+            'timestamp': 'Date/Time',
+            'direction': 'Direction',
+            'other_account': 'Other Account',
+            'amount': 'Amount',
+            'asset': 'Asset'
+        })[['Date/Time', 'Direction', 'Other Account', 'Amount', 'Asset']]
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.download_button(
+            label="⬇️ Export Transaction History (CSV)",
+            data=clean_tx_df.to_csv(index=False).encode('utf-8'),
+            file_name=f"{st.session_state.display_name}_transactions.csv",
+            mime="text/csv",
+            key="tx_download_btn"
+        )
 
         # --- SUMMARY SECTION ---
         st.markdown("<div id='summary-section' style='padding-top:20px;'></div>", unsafe_allow_html=True)
@@ -242,9 +319,9 @@ if st.session_state.stellar_data:
                 format_func=lambda x: x.replace("_", " ")
             )
         with s2:
-            sort_order = st.radio("Order", ["Descending", "Ascending"], horizontal=True)
+            sort_order = st.radio("Order", ["Ascending", "Descending"], horizontal=True)
         
-        ascending_bool = (sort_order == "Descending")
+        ascending_bool = (sort_order == "Ascending")
 
         summary_df = filtered_df.copy()
         summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
@@ -275,8 +352,25 @@ if st.session_state.stellar_data:
         st.write(f"**Top 10 Accounts (Sorted by {sort_metric.replace('_', ' ')})**")
         st.markdown(disp_summary.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
+        # Download Button for Summary Table (Clean Data without HTML links)
+        clean_summary_df = account_summary.rename(columns={
+            'other_account': 'Other Account',
+            'asset': 'Asset',
+            'Total_Volume': 'Total Volume',
+            'Net_Difference': 'Net Balance',
+            'Tx_Count': 'Tx Count'
+        })[['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']]
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.download_button(
+            label="⬇️ Export Account Summary (CSV)",
+            data=clean_summary_df.to_csv(index=False).encode('utf-8'),
+            file_name=f"{st.session_state.display_name}_summary.csv",
+            mime="text/csv",
+            key="summary_download_btn"
+        )
+
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<a href="#top-anchor" class="back-top">↑ Back to Top</a>', unsafe_allow_html=True)
-        st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
 else:
-    st.info("Enter a Username or Account ID in the sidebar to begin.")
+    st.info("Enter an Account Name or Account ID in the sidebar to begin.")
