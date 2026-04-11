@@ -13,7 +13,7 @@ from stellar_logic import (
 # 1. Page Configuration
 st.set_page_config(page_title="NUGpay Pro Dashboard", layout="wide")
 
-# Custom CSS (Preserved and updated for button alignment)
+# Custom CSS
 st.markdown("""
 <style>
     html { scroll-behavior: smooth; }
@@ -56,7 +56,6 @@ st.markdown("""
     }
     div[data-testid="stMetricValue"] { font-size: 1.8rem; }
     
-    /* Style for the inline list button to look like a small icon */
     .stButton > button {
         padding: 0px 5px;
         height: 25px;
@@ -133,20 +132,19 @@ def show_transaction_details(other_account_id, other_account_name, asset_type):
     st.write(f"**Dashboard Account:** `{st.session_state.display_name}`")
     st.write(f"**Other Account:** `{other_account_name}`")
     
-    # Filter global data for this specific interaction
     raw_df = pd.DataFrame(st.session_state.stellar_data)
+    # Filter by specific account and specific asset
     filtered = raw_df[(raw_df['other_account_id'] == other_account_id) & (raw_df['asset'] == asset_type)].copy()
     
     if not filtered.empty:
         filtered['Date/Time'] = filtered['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
         filtered['Amount_Disp'] = filtered.apply(lambda r: f"{r['amount']:,.2f}" if r['asset'] == "DMMK" else f"{r['amount']:,.7f}", axis=1)
         
-        # Display table using the exact format of the main history (minus 'Other Account' column)
         st.markdown(filtered[['Date/Time', 'direction', 'Amount_Disp', 'asset']]
                     .rename(columns={'direction':'Direction','Amount_Disp':'Amount','asset':'Asset'})
                     .to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
     else:
-        st.warning("No transactions found for this specific filter.")
+        st.warning("No transactions found for this asset.")
 
 # URL Check
 target_from_url = st.query_params.get("target_account")
@@ -228,7 +226,16 @@ if st.session_state.stellar_data:
 
     selected_assets = st.pills("Filter Assets", options=["DMMK", "nUSDT"], default=["DMMK", "nUSDT"], selection_mode="multi")
 
+    # --- APPLY LOGIC ---
     filtered_df = df.copy()
+    
+    # 1. Asset Filter (THE FIX)
+    if selected_assets:
+        filtered_df = filtered_df[filtered_df['asset'].isin(selected_assets)]
+    else:
+        filtered_df = pd.DataFrame(columns=df.columns) # Empty if nothing selected
+
+    # 2. Date/Time Filters
     if filter_mode == "Standard (Month/Week)":
         if sel_month != "All Months":
             filtered_df = filtered_df[filtered_df['month_year'] == sel_month]
@@ -279,11 +286,7 @@ if st.session_state.stellar_data:
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
         account_summary = account_summary.sort_values(sort_metric, ascending=(sort_order == "Ascending")).head(10)
 
-        # TO PRESERVE TABLE STYLE: 
-        # Instead of putting a button inside a dataframe (which requires HTML), 
-        # we display the table row by row so we can place a native Streamlit button inside a column.
-        
-        # Header Row
+        # Build Custom Table UI
         cols = st.columns([2.5, 1, 1.5, 1.5, 1.5, 1.5, 1])
         headers = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']
         for col, h in zip(cols, headers):
@@ -292,8 +295,6 @@ if st.session_state.stellar_data:
 
         for idx, row in account_summary.iterrows():
             c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 1, 1.5, 1.5, 1.5, 1.5, 1])
-            
-            # Column 1: Link + Icon Button
             with c1:
                 inner_col1, inner_col2 = st.columns([0.8, 0.2])
                 with inner_col1:
@@ -301,7 +302,6 @@ if st.session_state.stellar_data:
                     link_html = f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>'
                     st.markdown(link_html, unsafe_allow_html=True)
                 with inner_col2:
-                    # Using a button ensures NO PAGE REFRESH. Scroll position stays.
                     if st.button("📜", key=f"btn_{idx}_{row['asset']}"):
                         show_transaction_details(row['other_account_id'], row['other_account'], row['asset'])
             
