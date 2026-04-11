@@ -27,28 +27,28 @@ st.markdown("""
         padding: 10px 12px;
         border-bottom: 1px solid rgba(128, 128, 128, 0.2);
     }
-    /* Left align text columns, Right align number columns */
-    table.dataframe td:nth-child(1), table.dataframe th:nth-child(1),
-    table.dataframe td:nth-child(2), table.dataframe th:nth-child(2) {
-        text-align: left;
-    }
-    table.dataframe td, table.dataframe th {
+    /* Left align text, Right align numbers */
+    table.dataframe th, table.dataframe td { text-align: left; }
+    table.dataframe td:nth-child(4), table.dataframe th:nth-child(4),
+    table.dataframe td:nth-child(3), table.dataframe th:nth-child(3),
+    table.dataframe td:nth-child(5), table.dataframe th:nth-child(5),
+    table.dataframe td:nth-child(6), table.dataframe th:nth-child(6),
+    table.dataframe td:nth-child(7), table.dataframe th:nth-child(7) {
         text-align: right;
     }
+    
     table.dataframe th {
         font-size: 14px;
         color: rgba(128, 128, 128, 0.8);
         font-weight: 600;
     }
     table.dataframe tr:hover { background-color: rgba(128, 128, 128, 0.1); }
-    
     a.account-link {
         text-decoration: none;
         color: #1f77b4;
         font-weight: 600;
     }
     a.account-link:hover { text-decoration: underline; }
-    
     .subtle-jump {
         font-size: 0.85rem;
         color: #1f77b4 !important;
@@ -57,49 +57,53 @@ st.markdown("""
         display: inline-block;
         margin-top: 5px;
     }
-    
     .back-top {
         font-size: 0.8rem;
         color: #aaa !important;
         text-decoration: none;
         float: right;
     }
+    div[data-testid="stMetricValue"] { font-size: 1.8rem; }
     
     /* Sidebar Button Styling */
     div.stButton > button:first-child {
         border-radius: 8px;
-        height: 3em;
-        transition: all 0.2s;
-        font-weight: bold;
     }
-    /* Analyze Account Button (Primary) */
-    div[data-testid="column"]:nth-child(1) > div > div > div > button {
+    /* Target the Analyze Button specifically via its label */
+    div[data-testid="column"]:nth-child(1) button {
         background-color: #1f77b4;
         color: white;
         border: none;
-        width: 100%;
+        font-weight: 600;
+        transition: 0.3s;
     }
-    /* Clear Cache Button (Secondary/Danger) */
-    div[data-testid="column"]:nth-child(2) > div > div > div > button {
+    div[data-testid="column"]:nth-child(1) button:hover {
+        background-color: #155a8a;
+        color: white;
+        transform: translateY(-1px);
+    }
+    /* Target the Clear Cache Button */
+    div[data-testid="column"]:nth-child(2) button {
         background-color: transparent;
         color: #ff4b4b;
         border: 1px solid #ff4b4b;
-        width: 100%;
+        transition: 0.3s;
     }
-    
-    /* Inline Icon Button styling */
-    .stButton > button.st-emotion-cache-19rxjzo {
-        padding: 0px 5px !important;
-        background: transparent !important;
-        border: none !important;
-        font-size: 16px !important;
-        color: inherit !important;
+    div[data-testid="column"]:nth-child(2) button:hover {
+        background-color: #ff4b4b;
+        color: white;
     }
 
-    div[data-testid="stMetricValue"] { font-size: 1.8rem; }
-    
-    /* Right align numerical text in Column layout summary */
-    .num-align { text-align: right; width: 100%; display: block; }
+    /* List Icon Button in table */
+    .stButton > button.st-emotion-cache-16p6i8x, 
+    .stButton > button {
+        padding: 0px 5px;
+        height: 25px;
+        min-height: 25px;
+        background: transparent;
+        border: none;
+        font-size: 16px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -116,7 +120,7 @@ if 'analysis_months' not in st.session_state:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_cached_analysis(target_id, months):
-    return analyze_stellar_account(target_id, months=months) #
+    return analyze_stellar_account(target_id, months=months)
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_balances(account_id):
@@ -158,6 +162,7 @@ def load_account_data(identifier, months):
         st.error("Account details or transactions not found.")
         return False
 
+# --- DIALOG BOX FUNCTION ---
 @st.dialog("Transaction History Details", width="large")
 def show_transaction_details(other_account_id, other_account_name, asset_type):
     st.write(f"**Dashboard Account:** `{st.session_state.display_name}`")
@@ -193,11 +198,10 @@ else:
 analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 12, st.session_state.analysis_months)
 st.session_state.analysis_months = analysis_months 
 
-st.sidebar.markdown("<br>", unsafe_allow_html=True)
 col_side1, col_side2 = st.sidebar.columns(2)
-if col_side1.button("Analyze Account") and user_input:
+if col_side1.button("Analyze Account", use_container_width=True) and user_input:
     load_account_data(user_input, analysis_months)
-if col_side2.button("Clear Cache"):
+if col_side2.button("Clear Cache", use_container_width=True):
     st.session_state.stellar_data = None
     st.session_state.display_name = ""
     st.session_state.target_id = "" 
@@ -257,6 +261,7 @@ if st.session_state.stellar_data:
 
     selected_assets = st.pills("Filter Assets", options=["DMMK", "nUSDT"], default=["DMMK", "nUSDT"], selection_mode="multi")
 
+    # APPLY LOGIC
     filtered_df = df.copy()
     if selected_assets:
         filtered_df = filtered_df[filtered_df['asset'].isin(selected_assets)]
@@ -281,7 +286,7 @@ if st.session_state.stellar_data:
     elif filtered_df.empty:
         st.warning("No data found for this selection.")
     else:
-        # TRANSACTION TABLE
+        # --- TRANSACTION TABLE ---
         display_df = filtered_df.copy()
         display_df['Date/Time'] = display_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
         def create_link(row):
@@ -293,7 +298,7 @@ if st.session_state.stellar_data:
         st.write("**Transaction History**")
         st.markdown(display_df[['Date/Time', 'direction', 'Other Account', 'Amount_Disp', 'asset']].rename(columns={'direction':'Direction','Amount_Disp':'Amount','asset':'Asset'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
-        # SUMMARY SECTION
+        # --- SUMMARY SECTION ---
         st.markdown("<div id='summary-section' style='padding-top:20px;'></div>", unsafe_allow_html=True)
         st.markdown("---")
         st.subheader("Summary by Account")
@@ -313,19 +318,19 @@ if st.session_state.stellar_data:
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
         account_summary = account_summary.sort_values(sort_metric, ascending=(sort_order == "Ascending")).head(10)
 
-        # Build Custom Table UI with Right Alignment for Numbers
-        cols = st.columns([2.5, 0.8, 1.4, 1.4, 1.4, 1.4, 0.8])
+        # Custom Table UI with alignment
+        cols = st.columns([2.5, 1, 1.5, 1.5, 1.5, 1.5, 1])
         headers = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']
-        for i, (col, h) in enumerate(zip(cols, headers)):
-            # First two headers left, rest right
-            align = "left" if i < 2 else "right"
-            col.markdown(f"<p style='text-align:{align}; margin-bottom:0;'>**{h}**</p>", unsafe_allow_html=True)
+        aligns = ['left', 'left', 'right', 'right', 'right', 'right', 'right']
+        
+        for col, h, a in zip(cols, headers, aligns):
+            col.markdown(f"<div style='text-align: {a}; font-weight: bold;'>{h}</div>", unsafe_allow_html=True)
         st.divider()
 
         for idx, row in account_summary.iterrows():
-            c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 0.8, 1.4, 1.4, 1.4, 1.4, 0.8])
+            c1, c2, c3, c4, c5, c6, c7 = st.columns([2.5, 1, 1.5, 1.5, 1.5, 1.5, 1])
             with c1:
-                inner_col1, inner_col2 = st.columns([0.85, 0.15])
+                inner_col1, inner_col2 = st.columns([0.8, 0.2])
                 with inner_col1:
                     safe_name = urllib.parse.quote(str(row['other_account']))
                     link_html = f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>'
@@ -334,12 +339,12 @@ if st.session_state.stellar_data:
                     if st.button("📜", key=f"btn_{idx}_{row['asset']}"):
                         show_transaction_details(row['other_account_id'], row['other_account'], row['asset'])
             
-            c2.markdown(f"<span>{row['asset']}</span>", unsafe_allow_html=True)
-            c3.markdown(f"<span class='num-align'>{row['Total_Volume']:,.2f}</span>", unsafe_allow_html=True)
-            c4.markdown(f"<span class='num-align'>{row['Incoming']:,.2f}</span>", unsafe_allow_html=True)
-            c5.markdown(f"<span class='num-align'>{row['Outgoing']:,.2f}</span>", unsafe_allow_html=True)
-            c6.markdown(f"<span class='num-align'>{row['Net_Difference']:,.2f}</span>", unsafe_allow_html=True)
-            c7.markdown(f"<span class='num-align'>{row['Tx_Count']}</span>", unsafe_allow_html=True)
+            c2.markdown(f"<div style='text-align: left;'>{row['asset']}</div>", unsafe_allow_html=True)
+            c3.markdown(f"<div style='text-align: right;'>{row['Total_Volume']:,.2f}</div>", unsafe_allow_html=True)
+            c4.markdown(f"<div style='text-align: right;'>{row['Incoming']:,.2f}</div>", unsafe_allow_html=True)
+            c5.markdown(f"<div style='text-align: right;'>{row['Outgoing']:,.2f}</div>", unsafe_allow_html=True)
+            c6.markdown(f"<div style='text-align: right;'>{row['Net_Difference']:,.2f}</div>", unsafe_allow_html=True)
+            c7.markdown(f"<div style='text-align: right;'>{row['Tx_Count']}</div>", unsafe_allow_html=True)
             st.markdown('<hr style="margin:0; border-color:rgba(128,128,128,0.2)">', unsafe_allow_html=True)
 
         # EXPORT SECTION
