@@ -26,17 +26,8 @@ st.markdown("""
     table.dataframe th, table.dataframe td {
         padding: 10px 12px;
         border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+        text-align: left;
     }
-    /* Left align text, Right align numbers */
-    table.dataframe th, table.dataframe td { text-align: left; }
-    table.dataframe td:nth-child(4), table.dataframe th:nth-child(4),
-    table.dataframe td:nth-child(3), table.dataframe th:nth-child(3),
-    table.dataframe td:nth-child(5), table.dataframe th:nth-child(5),
-    table.dataframe td:nth-child(6), table.dataframe th:nth-child(6),
-    table.dataframe td:nth-child(7), table.dataframe th:nth-child(7) {
-        text-align: right;
-    }
-    
     table.dataframe th {
         font-size: 14px;
         color: rgba(128, 128, 128, 0.8);
@@ -65,44 +56,30 @@ st.markdown("""
     }
     div[data-testid="stMetricValue"] { font-size: 1.8rem; }
     
-    /* Sidebar Button Styling */
-    div.stButton > button:first-child {
-        border-radius: 8px;
-    }
-    /* Target the Analyze Button specifically via its label */
-    div[data-testid="column"]:nth-child(1) button {
-        background-color: #1f77b4;
-        color: white;
-        border: none;
-        font-weight: 600;
-        transition: 0.3s;
-    }
-    div[data-testid="column"]:nth-child(1) button:hover {
-        background-color: #155a8a;
-        color: white;
-        transform: translateY(-1px);
-    }
-    /* Target the Clear Cache Button */
-    div[data-testid="column"]:nth-child(2) button {
-        background-color: transparent;
-        color: #ff4b4b;
-        border: 1px solid #ff4b4b;
-        transition: 0.3s;
-    }
-    div[data-testid="column"]:nth-child(2) button:hover {
-        background-color: #ff4b4b;
-        color: white;
-    }
-
-    /* List Icon Button in table */
-    .stButton > button.st-emotion-cache-16p6i8x, 
-    .stButton > button {
+    /* Small Icon Button inside the Summary Table */
+    .stButton > button[kind="secondary"] {
         padding: 0px 5px;
         height: 25px;
         min-height: 25px;
         background: transparent;
         border: none;
         font-size: 16px;
+    }
+
+    /* Sidebar Buttons - Bold, Bordered, and Obvious */
+    section[data-testid="stSidebar"] .stButton > button {
+        border: 2px solid #1f77b4 !important;
+        color: #1f77b4 !important;
+        background-color: transparent;
+        font-weight: 700 !important;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+        margin-top: 10px;
+    }
+    section[data-testid="stSidebar"] .stButton > button:hover {
+        background-color: #1f77b4 !important;
+        color: white !important;
+        box-shadow: 0 4px 8px rgba(31, 119, 180, 0.2);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -198,10 +175,11 @@ else:
 analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 12, st.session_state.analysis_months)
 st.session_state.analysis_months = analysis_months 
 
-col_side1, col_side2 = st.sidebar.columns(2)
-if col_side1.button("Analyze Account", use_container_width=True) and user_input:
+# Sidebar Action Buttons
+if st.sidebar.button("Analyze Account", use_container_width=True) and user_input:
     load_account_data(user_input, analysis_months)
-if col_side2.button("Clear Cache", use_container_width=True):
+
+if st.sidebar.button("Clear Cache", use_container_width=True):
     st.session_state.stellar_data = None
     st.session_state.display_name = ""
     st.session_state.target_id = "" 
@@ -261,8 +239,9 @@ if st.session_state.stellar_data:
 
     selected_assets = st.pills("Filter Assets", options=["DMMK", "nUSDT"], default=["DMMK", "nUSDT"], selection_mode="multi")
 
-    # APPLY LOGIC
+    # --- APPLY LOGIC ---
     filtered_df = df.copy()
+    
     if selected_assets:
         filtered_df = filtered_df[filtered_df['asset'].isin(selected_assets)]
     else:
@@ -318,13 +297,11 @@ if st.session_state.stellar_data:
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
         account_summary = account_summary.sort_values(sort_metric, ascending=(sort_order == "Ascending")).head(10)
 
-        # Custom Table UI with alignment
+        # Build Custom Table UI
         cols = st.columns([2.5, 1, 1.5, 1.5, 1.5, 1.5, 1])
         headers = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']
-        aligns = ['left', 'left', 'right', 'right', 'right', 'right', 'right']
-        
-        for col, h, a in zip(cols, headers, aligns):
-            col.markdown(f"<div style='text-align: {a}; font-weight: bold;'>{h}</div>", unsafe_allow_html=True)
+        for col, h in zip(cols, headers):
+            col.markdown(f"**{h}**")
         st.divider()
 
         for idx, row in account_summary.iterrows():
@@ -339,12 +316,12 @@ if st.session_state.stellar_data:
                     if st.button("📜", key=f"btn_{idx}_{row['asset']}"):
                         show_transaction_details(row['other_account_id'], row['other_account'], row['asset'])
             
-            c2.markdown(f"<div style='text-align: left;'>{row['asset']}</div>", unsafe_allow_html=True)
-            c3.markdown(f"<div style='text-align: right;'>{row['Total_Volume']:,.2f}</div>", unsafe_allow_html=True)
-            c4.markdown(f"<div style='text-align: right;'>{row['Incoming']:,.2f}</div>", unsafe_allow_html=True)
-            c5.markdown(f"<div style='text-align: right;'>{row['Outgoing']:,.2f}</div>", unsafe_allow_html=True)
-            c6.markdown(f"<div style='text-align: right;'>{row['Net_Difference']:,.2f}</div>", unsafe_allow_html=True)
-            c7.markdown(f"<div style='text-align: right;'>{row['Tx_Count']}</div>", unsafe_allow_html=True)
+            c2.text(row['asset'])
+            c3.text(f"{row['Total_Volume']:,.2f}")
+            c4.text(f"{row['Incoming']:,.2f}")
+            c5.text(f"{row['Outgoing']:,.2f}")
+            c6.text(f"{row['Net_Difference']:,.2f}")
+            c7.text(row['Tx_Count'])
             st.markdown('<hr style="margin:0; border-color:rgba(128,128,128,0.2)">', unsafe_allow_html=True)
 
         # EXPORT SECTION
